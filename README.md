@@ -51,6 +51,18 @@ Khi chưa có `DATABASE_URL`, dữ liệu local lưu bằng PostgreSQL nhúng PG
 
 Với `DEMO_MODE=false`, database mới chỉ khởi tạo một tài khoản admin từ `ADMIN_EMAIL`/`ADMIN_PASSWORD`; mặt hàng, nhà cung cấp, lịch sử và giao dịch đều trống. Tài khoản demo không đăng nhập được ở chế độ này. `.env` chứa mật khẩu và được loại khỏi Git.
 
+### Dữ liệu demo có sẵn chứng từ
+
+Bản tải về chưa có yêu cầu mua, báo giá hay đơn mua nào. Để mọi màn hình có sẵn dữ liệu, chạy một lần trước khi mở ứng dụng:
+
+```powershell
+npm.cmd run db demo
+```
+
+Lệnh này ghi một câu chuyện nhỏ nhưng trọn vẹn: một đơn mua đã nhận đủ và đã đánh giá, một đơn mua hai mặt hàng đang nhận dở, và một nhu cầu đang chờ duyệt. Dữ liệu được ghi qua đúng lớp nghiệp vụ mà giao diện dùng, vào đúng CSDL mà ứng dụng sẽ mở (PGlite khi chưa có `DATABASE_URL`, PostgreSQL khi có). Lệnh từ chối chạy nếu CSDL đã có yêu cầu mua, nên không ghi đè dữ liệu thật.
+
+Với `DEMO_MODE=true`, đăng nhập bằng các tài khoản `@ahp.local` ở bảng trên. Với `DEMO_MODE=false`, lệnh tạo thêm tài khoản cho những vai trò còn thiếu (`buyer@demo.local`, `manager@demo.local`, `warehouse@demo.local`, `auditor@demo.local`, mật khẩu **Demo@12345**) và nhập danh mục mẫu nếu danh mục đang trống. Các tài khoản này có mật khẩu công khai: đổi mật khẩu hoặc khóa chúng trước khi dùng thật.
+
 Các script `scripts/start.ps1` và `scripts/stop.ps1` dùng UTF-8 có BOM để Windows PowerShell 5.1 đọc đúng tiếng Việt. Kiểm tra cú pháp bằng `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/powershell.test.ps1`.
 
 ## Cách làm từng bước

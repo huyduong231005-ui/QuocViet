@@ -12,6 +12,7 @@ import {NORMALIZED_TABLES,migrationDefinitions} from './schema';
 import {Procurement} from '../procurement';
 import {readCatalog,writeSampleCatalog} from '../catalog-import';
 import {DEFAULT_ROLES,provisionRoles,runtimeUrl} from './roles';
+import {seedDemo} from './demo';
 
 /** Administrative database commands. Connection strings come from the local
  * .env (or TEST_DATABASE_URL for the rehearsal cluster) and reach PostgreSQL
@@ -117,6 +118,13 @@ async function verifyMigrated(url:string,before:Snapshot){
  return after;
 }
 async function main(){
+ // The demo story is written into whatever the application itself would open: the
+ // embedded database when DATABASE_URL is not set, PostgreSQL otherwise.
+ if(process.argv[2]==='demo'){
+  const db=await Database.open(process.env.DATA_DIR||resolve(root,'.data/postgres'),process.env.DATABASE_URL);
+  try{for(const line of await seedDemo(db,process.env.DEMO_MODE!=='false'))console.log(line)}finally{await db.close()}
+  return;
+ }
  // DATABASE_URL is what the API runs as. Once a runtime role exists it has no
  // DDL, and administrative commands use MIGRATION_DATABASE_URL instead.
  const command=process.argv[2],runtime=required('DATABASE_URL'),url=process.env.MIGRATION_DATABASE_URL||runtime;
@@ -175,6 +183,6 @@ async function main(){
   }finally{await db.close()}
   return;
  }
- throw new Error('Usage: cli.ts status | backup | migrate | provision | sample [file] | import <file.xlsx> [commit]');
+ throw new Error('Usage: cli.ts status | backup | migrate | provision | demo | sample [file] | import <file.xlsx> [commit]');
 }
 main().catch(error=>{console.error(`database command failed: ${error.message}`);process.exit(1)});
