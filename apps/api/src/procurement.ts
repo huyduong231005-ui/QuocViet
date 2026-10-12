@@ -44,6 +44,90 @@ export class Procurement {
    requireThat(rfq.supplierIds.includes(supplier.id)&&supplier.active!==false,'Nhà cung cấp phải đang hoạt động và được mời trong RFQ');
   },{readOnly:true});
  }
+ async benchmark(rfqId?:unknown,supplierId?:unknown,productId?:unknown,currentPrice?:number,currentDeliveryDays?:number){
+  requireThat(typeof supplierId==='string'&&supplierId.length>0,'Chọn nhà cung cấp');
+  return this.db.transaction(async repo=>{
+   let resolvedProductId=typeof productId==='string'&&productId.length>0?productId:undefined;
+   if(!resolvedProductId&&typeof rfqId==='string'&&rfqId.length>0){
+    const rfq=await need(repo,'rfqs',rfqId);
+    resolvedProductId=rfq.productId;
+   }
+   requireThat(typeof resolvedProductId==='string'&&resolvedProductId.length>0,'Thiếu thông tin sản phẩm hoặc RFQ');
+   const [supplier,product]=await Promise.all([
+    need(repo,'suppliers',supplierId as string),
+    need(repo,'products',resolvedProductId as string),
+   ]);
+   const catalogPrices=await repo.find('prices',{productId:resolvedProductId,supplierId});
+   const catalogPrice=catalogPrices[0];
+   const allCatalogPrices=await repo.find('prices',{productId:resolvedProductId});
+   const marketAvgPrice=allCatalogPrices.length?Math.round(allCatalogPrices.reduce((sum,p)=>sum+(p.unitPrice||0),0)/allCatalogPrices.length):undefined;
+   const supplierQuotes=await repo.find('quotations',{supplierId});
+   const allRfqs=await repo.find('rfqs',{productId:resolvedProductId});
+   const rfqIdsForProduct=new Set(allRfqs.map(r=>r.id));
+   const pastQuotes=supplierQuotes
+    .filter(q=>rfqIdsForProduct.has(q.rfqId)&&(!rfqId||q.rfqId!==rfqId))
+    .sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))
+    .slice(0,5);
+   const evaluations=(await repo.find('evaluations',{supplierId,productId:resolvedProductId}))
+    .sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))
+    .slice(0,5);
+   const history=(await repo.find('history',{supplierId,productId:resolvedProductId}))
+    .sort((a,b)=>(b.month||'').localeCompare(a.month||''))
+    .slice(0,12);
+   const baselinePrice=pastQuotes[0]?.unitPrice??catalogPrice?.unitPrice??history[0]?.unitPrice??marketAvgPrice;
+   const baselineSource=pastQuotes[0]?'Báo giá gần nhất của NCC':catalogPrice?'Giá danh mục của NCC':history[0]?'Lịch sử giá NCC':'Giá trung bình thị trường';
+   const baselineDelivery=pastQuotes[0]?.deliveryDays??catalogPrice?.deliveryDays??3;
+   const warnings:{level:'danger'|'warning'|'info';message:string;diffPercent?:number}[]=[];
+   let priceComparison:any=null;
+   if(typeof currentPrice==='number'&&currentPrice>0&&baselinePrice){
+    const diffPercent=Math.round(((currentPrice-baselinePrice)/baselinePrice)*1000)/10;
+    if(diffPercent>15){
+     warnings.push({level:'danger',message:`Đơn giá (${currentPrice.toLocaleString('vi-VN')} đ) cao hơn ${diffPercent}% so với ${baselineSource.toLowerCase()} (${baselinePrice.toLocaleString('vi-VN')} đ).`,diffPercent});
+    }else if(diffPercent>5){
+     warnings.push({level:'warning',message:`Đơn giá tăng nhẹ ${diffPercent}% so với ${baselineSource.toLowerCase()} (${baselinePrice.toLocaleString('vi-VN')} đ).`,diffPercent});
+    }else if(diffPercent<-5){
+     warnings.push({level:'info',message:`Đơn giá thấp hơn ${Math.abs(diffPercent)}% so với ${baselineSource.toLowerCase()} (${baselinePrice.toLocaleString('vi-VN')} đ).`,diffPercent});
+    }
+    priceComparison={currentPrice,baselinePrice,baselineSource,diffPercent,status:diffPercent>15?'high_increase':diffPercent>5?'slight_increase':diffPercent<-5?'cheaper':'normal'};
+   }
+   let deliveryComparison:any=null;
+   if(typeof currentDeliveryDays==='number'&&currentDeliveryDays>0&&baselineDelivery){
+    if(currentDeliveryDays>baselineDelivery*1.3){
+     warnings.push({level:'warning',message:`Thời gian giao hàng (${currentDeliveryDays} ngày) dài hơn ${Math.round(((currentDeliveryDays-baselineDelivery)/baselineDelivery)*100)}% so với thông lệ (${baselineDelivery} ngày).`});
+    }
+    deliveryComparison={currentDays:currentDeliveryDays,baselineDays:baselineDelivery,status:currentDeliveryDays>baselineDelivery*1.3?'delayed':'normal'};
+   }
+   if(supplier.reputation<70){
+    warnings.push({level:'warning',message:`Uy tín của NCC (${supplier.name}) đang ở mức trung bình (${supplier.reputation}/100).`});
+   }
+   if(evaluations.length>0&&evaluations[0].overallScore<60){
+    warnings.push({level:'danger',message:`Đơn hàng gần nhất của NCC này có điểm đánh giá thấp (${evaluations[0].overallScore}/100).`});
+   }
+   if(history.length>=3){
+    const lateCount=history.filter(h=>h.onTime===false).length;
+    if(lateCount>=2){
+     warnings.push({level:'warning',message:`NCC có ${lateCount}/${history.length} lần giao hàng trễ trong lịch sử gần đây.`});
+    }
+   }
+   if(!baselinePrice&&warnings.length===0){
+    warnings.push({level:'info',message:'Chưa có dữ liệu lịch sử giá cho mặt hàng này từ nhà cung cấp.'});
+   }
+   return {
+    hasHistory:!!(pastQuotes.length||catalogPrice||history.length),
+    supplier:{id:supplier.id,name:supplier.name,reputation:supplier.reputation},
+    product:{id:product.id,name:product.name,sku:product.sku,unit:product.unit},
+    baselinePrice,
+    baselineSource,
+    marketAvgPrice,
+    catalogPrice:catalogPrice?{unitPrice:catalogPrice.unitPrice,deliveryDays:catalogPrice.deliveryDays,qualityScore:catalogPrice.qualityScore}:undefined,
+    recentQuotes:pastQuotes.map(q=>({unitPrice:q.unitPrice,deliveryDays:q.deliveryDays,createdAt:q.createdAt})),
+    recentEvaluations:evaluations.map(e=>({overallScore:e.overallScore,qualityScore:e.qualityScore,deliveryScore:e.deliveryScore,createdAt:e.createdAt})),
+    priceComparison,
+    deliveryComparison,
+    warnings,
+   };
+  },{readOnly:true});
+ }
  /** Paged, filtered reads of a document list, including documents no longer in the workspace. */
  async documents(kind:string,query:unknown){
   requireThat((DOCUMENT_KINDS as readonly string[]).includes(kind),'Danh sách không tồn tại',404);const q=parse(documentQuerySchema,query,true);

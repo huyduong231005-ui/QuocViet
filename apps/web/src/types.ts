@@ -30,5 +30,20 @@ export interface Dashboard {totalProducts:number;totalSuppliers:number;pendingAp
 /** Master data plus the working set: documents still in progress and those created since `workspaceSince`. Older documents are read through the paged lists. */
 /** `mailEnabled`: RFQ and PO mail really leaves; otherwise it is only queued. */
 export interface Bootstrap {workspaceSince?:string;businessDate:string;demoMode?:boolean;mailEnabled?:boolean;agentEnabled?:boolean;extractionEnabled?:boolean;products:Product[];suppliers:Supplier[];prices:Price[];requests:Request[];rfqs:Rfq[];quotations:Quotation[];ahpSessions:Session[];orders:Order[];receipts:Receipt[];evaluations:Evaluation[];inventory:Inventory[];agentRuns:Run[];agentSteps:AgentStep[];approvals:Approval[];history:History[];criteria:Criterion[];dashboard:Dashboard;}
-export interface Extraction {quotation:Partial<Quotation>;confidence:number;coverage?:number;missingFields?:string[];warnings:string[];method:string;tokensUsed?:number;llmStatus?:'used'|'failed'|'not_configured'|'rate_limited';evidence?:Record<string,string>;fieldSources?:Record<string,'parser'|'model'>;}
+export interface AnomalyWarning { field?:string; level:'danger'|'warning'|'info'; message:string; diffPercent?:number; }
+export interface Benchmark {
+ hasHistory: boolean;
+ supplier: { id:string; name:string; reputation:number; };
+ product: { id:string; name:string; sku:string; unit:string; };
+ baselinePrice?: number;
+ baselineSource?: string;
+ marketAvgPrice?: number;
+ catalogPrice?: { unitPrice:number; deliveryDays:number; qualityScore:number; };
+ recentQuotes?: { unitPrice:number; deliveryDays:number; createdAt:string; }[];
+ recentEvaluations?: { overallScore:number; qualityScore:number; deliveryScore:number; createdAt:string; }[];
+ priceComparison?: { currentPrice:number; baselinePrice:number; baselineSource:string; diffPercent:number; status:'cheaper'|'normal'|'slight_increase'|'high_increase'; };
+ deliveryComparison?: { currentDays:number; baselineDays:number; status:'delayed'|'normal'; };
+ warnings: AnomalyWarning[];
+}
+export interface Extraction {quotation:Partial<Quotation>;confidence:number;coverage?:number;missingFields?:string[];warnings:string[];method:string;tokensUsed?:number;llmStatus?:'used'|'failed'|'not_configured'|'rate_limited'|'skipped_sufficient'|'skipped_core_fields_present';evidence?:Record<string,string>;fieldSources?:Record<string,'parser'|'model'>;benchmark?:Benchmark;}
 export interface AgentStatus {enabled:boolean;extractionEnabled:boolean;reachable:boolean;llmConfigured:boolean;ocrAvailable:boolean;model:string|null;provider:string|null;keyCount:number;}

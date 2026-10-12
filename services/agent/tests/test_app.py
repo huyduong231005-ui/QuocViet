@@ -80,3 +80,19 @@ def test_gemini_config_requires_agent_key_and_persists_without_echoing_keys(tmp_
     saved = config.read_text(encoding="utf-8")
     assert "DATABASE_URL=postgres://fixture:secret@localhost/demo" in saved
     assert "GEMINI_API_KEYS=AQ.example=one,AQ+example/two" in saved
+
+
+def test_draft_email_endpoint_returns_template_or_ai(monkeypatch):
+    monkeypatch.setenv("AGENT_API_KEY", "test-key")
+    monkeypatch.setenv("AGENT_ENABLED", "false")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    with TestClient(create_app()) as client:
+        headers = {"X-Agent-Key": "test-key"}
+        res = client.post("/draft-email", headers=headers, json={"type": "rfq", "supplierName": "An Phát", "productName": "Giấy A4", "quantity": 10, "unit": "ram"})
+        assert res.status_code == 200
+        data = res.json()
+        assert "subject" in data and "body" in data
+        assert "Thư mời" in data["subject"] and "An Phát" in data["subject"]
+        assert "An Phát" in data["body"]
+        assert data["source"] == "template"
+

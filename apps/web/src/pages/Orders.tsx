@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Drawer, Grid, Select, Space, Table, Tabs } from 'antd';
-import { MailOutlined, InboxOutlined, StarOutlined, ShoppingCartOutlined } from '@ant-design/icons';
+import { MailOutlined, InboxOutlined, StarOutlined, ShoppingCartOutlined, RobotOutlined } from '@ant-design/icons';
 import { useWorkspace } from '../api';
 import { can, poCandidates } from '../logic';
 import { Bar, Chip, DataTable, Editor, EmptyState, GoodsTile, PageTitle, Sheet, Status, SupplierAvatar, date, money, number, shortId, type Field } from '../components';
 import { PagedTable } from '../PagedTable';
 import { ReceiptEditor } from './ReceiptEditor';
+import { EmailDraftModal } from './EmailDraftModal';
 import type { Evaluation, Order, Receipt } from '../types';
 
 const evaluationFields:Field[]=[{name:'qualityScore',label:'Chất lượng / 100',kind:'number',min:1,max:100},{name:'serviceScore',label:'Dịch vụ / 100',kind:'number',min:1,max:100},{name:'notes',label:'Nhận xét',kind:'textarea',required:false}];
@@ -31,6 +32,7 @@ export function OrdersPage(){
  const {data,auth,mutate,busy}=useWorkspace();const wide=!!Grid.useBreakpoint().xl;
  // The lists are paged on the server, so a chosen row is kept as the row itself.
  const [selected,setSelected]=useState<Order|null>(null);const [receiving,setReceiving]=useState<Order|null>(null);const [evaluating,setEvaluating]=useState<Order|null>(null);const [status,setStatus]=useState<string>();
+ const [draftOrder,setDraftOrder]=useState<Order|null>(null);
  if(!data||!auth)return null;
  const buy=can(auth.user.role,'buy'),receive=can(auth.user.role,'receive');
  const supplierName=(id?:string)=>data.suppliers.find(s=>s.id===id)?.name||shortId(id);
@@ -44,7 +46,12 @@ export function OrdersPage(){
  // in the drawer it is closed rather than left showing old numbers.
  const act=async(path:string,body:unknown)=>{const saved=await mutate(path,body);if(saved&&!wide)setSelected(null);return !!saved;};
  const actions=(o:Order)=><Space wrap>
-  {buy&&!o.sentAt&&<Button type="primary" icon={<MailOutlined aria-hidden/>} loading={busy} onClick={()=>void act(`/orders/${o.id}/send`,{})}>Gửi PO kèm PDF</Button>}
+  {buy&&(
+   <Button icon={<RobotOutlined aria-hidden />} onClick={()=>setDraftOrder(o)}>Xem / AI soạn thư PO</Button>
+  )}
+  {buy&&!o.sentAt&&(
+   <Button type="primary" icon={<MailOutlined aria-hidden/>} loading={busy} onClick={()=>void act(`/orders/${o.id}/send`,{})}>Gửi PO kèm PDF</Button>
+  )}
   {receive&&o.status!=='received'&&<Button type={buy&&!o.sentAt?'default':'primary'} icon={<InboxOutlined aria-hidden/>} onClick={()=>setReceiving(o)}>Ghi nhận nhập hàng</Button>}
   {buy&&o.status==='received'&&!o.evaluated&&<Button type="primary" icon={<StarOutlined aria-hidden/>} onClick={()=>setEvaluating(o)}>Đánh giá nhà cung cấp</Button>}
  </Space>;
@@ -125,5 +132,26 @@ export function OrdersPage(){
    {evaluating&&<Alert type="info" showIcon message={`PO ${shortId(evaluating.id)}, ${supplierName(evaluating.supplierId)}`} description="Điểm giao hàng do hệ thống tính từ thời gian nhận. Phản hồi sẽ được dùng trong lần AHP tiếp theo."/>}
   </Editor>
   {!wide&&<Drawer title="Chi tiết đơn mua" width={720} open={!!selected} onClose={()=>setSelected(null)}><div className="sheet-plain">{body}</div></Drawer>}
+  <EmailDraftModal
+   open={!!draftOrder}
+   onClose={()=>setDraftOrder(null)}
+   context={draftOrder ? {
+    type: 'po',
+    orderId: draftOrder.id,
+    supplierName: supplierName(draftOrder.supplierId),
+    supplierEmail: data.suppliers.find(s=>s.id===draftOrder.supplierId)?.email,
+    suppliers: (() => {
+      const sup = data.suppliers.find(s=>s.id===draftOrder.supplierId);
+      return sup ? [{id: sup.id, name: sup.name, email: sup.email, phone: sup.phone}] : undefined;
+    })(),
+    productName: draftOrder.items.map(l=>l.productName).join(', '),
+    quantity: draftOrder.items[0]?.quantity,
+    unit: draftOrder.items[0]?.unit,
+   } : null}
+   onSend={async ()=>{
+    await act(`/orders/${draftOrder!.id}/send`, {});
+   }}
+   sendLabel="Gửi PO kèm PDF"
+  />
  </>;
 }

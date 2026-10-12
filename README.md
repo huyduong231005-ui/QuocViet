@@ -1,6 +1,6 @@
 # ProcureIQ — nhập hàng và AHP
 
-Đã đọc kế hoạch Word và triển khai theo thứ tự dễ → khó theo yêu cầu mới của bạn. Bản hiện tại chạy cục bộ, tập trung nghiệp vụ thủ công. AI Agent được tắt mặc định và dành cho giai đoạn sau.
+Đã đọc kế hoạch Word và triển khai theo thứ tự dễ → khó theo yêu cầu mới của bạn. Bản hiện tại chạy cục bộ, tập trung nghiệp vụ thủ công. Hệ thống đã tích hợp toàn diện 4 tầng năng lực AI: Trích xuất báo giá, Cảnh báo bất thường, Soạn email và LangGraph Workflow tự điều phối.
 
 | Bước | Nội dung | Trạng thái |
 | --- | --- | --- |

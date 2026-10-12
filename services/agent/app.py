@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from extraction import extract_quotation
-from llm import GeminiLLM, model_from_environment
+from llm import GeminiLLM, model_from_environment, template_draft_email
 from configuration import save_gemini_config, validate_gemini_keys
 from workflow import AgentWorkflow, BackendClient, BackendToolError, WorkflowConflict
 
@@ -36,6 +36,26 @@ class ExtractionPayload(StrictPayload):
     text: str | None = Field(default=None, max_length=100_000)
     fileBase64: str | None = Field(default=None, max_length=29_360_128)
     mimeType: str | None = Field(default=None, max_length=100)
+
+
+class EmailDraftPayload(StrictPayload):
+    type: str = Field(default="rfq", max_length=50)
+    supplierName: str = Field(min_length=1, max_length=200)
+    supplierEmail: str | None = Field(default=None, max_length=254)
+    buyerCompany: str | None = Field(default=None, max_length=200)
+    buyerName: str | None = Field(default=None, max_length=100)
+    buyerEmail: str | None = Field(default=None, max_length=254)
+    buyerPhone: str | None = Field(default=None, max_length=50)
+    productName: str | None = Field(default=None, max_length=200)
+    quantity: float | None = Field(default=None, gt=0, le=1_000_000_000)
+    unit: str | None = Field(default=None, max_length=50)
+    deadline: str | None = Field(default=None, max_length=100)
+    rfqId: str | None = Field(default=None, max_length=100)
+    orderId: str | None = Field(default=None, max_length=100)
+    notes: str | None = Field(default=None, max_length=2000)
+    paymentTerms: str | None = Field(default=None, max_length=500)
+    deliveryTerms: str | None = Field(default=None, max_length=500)
+    warranty: str | None = Field(default=None, max_length=500)
 
 
 class GeminiConfiguration(StrictPayload):
@@ -116,6 +136,20 @@ def create_app(workflow: AgentWorkflow | None = None) -> FastAPI:
             return extract_quotation(text=payload.text, file_base64=payload.fileBase64, mime_type=payload.mimeType, llm=request.app.state.model)
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
+
+    @application.post("/draft-email", dependencies=[Depends(require_agent_key)])
+    def draft_email_endpoint(payload: EmailDraftPayload, request: Request):
+        context = payload.model_dump(exclude_none=True)
+        model = request.app.state.model
+        tokens = 0
+        if model is not None and hasattr(model, "draft_email"):
+            try:
+                result, tokens = model.draft_email(context)
+                return {**result, "tokensUsed": tokens, "source": "ai"}
+            except Exception:
+                pass
+        fallback = template_draft_email(context)
+        return {**fallback, "tokensUsed": 0, "source": "template"}
 
     @application.post("/config/gemini", dependencies=[Depends(require_agent_key)])
     def configure_gemini(payload: GeminiConfiguration, request: Request):

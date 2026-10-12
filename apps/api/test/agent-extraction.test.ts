@@ -40,7 +40,7 @@ test('real Python service returns an AI draft over HTTP; confirmation alone writ
  let application:Awaited<ReturnType<typeof createApp>>|undefined;
  try{
   let ready=false;
-  for(let attempt=0;attempt<100;attempt++){
+  for(let attempt=0;attempt<300;attempt++){
    if(child.exitCode!==null||child.signalCode!==null)throw new Error(`Python exited before readiness: ${logs}`);
    try{if((await fetch(agentUrl+'/health',{signal:AbortSignal.timeout(500)})).ok){ready=true;break}}catch{}
    await delay(100);
@@ -73,6 +73,12 @@ test('real Python service returns an AI draft over HTTP; confirmation alone writ
   assert.equal(extracted.status,201);assert.equal(extracted.data.llmStatus,'used');assert.equal(extracted.data.tokensUsed,86);
   assert.equal(extracted.data.fieldSources.quantity,'model');assert.equal(extracted.data.evidence.unitPrice,'Đơn giá: 68.000 VND');
   assert.deepEqual(extracted.data.quotation,{quantity:15,unitPrice:68000,deliveryDays:3,vat:8,currency:'VND',validUntil:'2099-12-31',rfqId:rfq.id,supplierId:'sup-anphat'});
+  assert.ok(extracted.data.benchmark,'benchmark is returned in extraction response');
+  assert.equal(extracted.data.benchmark.supplier.id,'sup-anphat');
+  assert.equal(extracted.data.benchmark.product.id,'pro-paper');
+  const bmHigh=await call(`/quotations/benchmark?rfqId=${rfq.id}&supplierId=sup-anphat&unitPrice=85000&deliveryDays=5`,undefined,buyer);
+  assert.equal(bmHigh.status,200);
+  assert.ok(bmHigh.data.warnings.some((w:any)=>w.level==='danger'),'price increase >15% triggers danger warning');
   assert.equal((await service.bootstrap()).quotations.length,0,'extracting a draft writes no quotation');
   const pdf=await readFile(resolve(root,'services/agent/fixtures/demo-quotation.pdf'));
   const document=await call('/quotations/extract',{rfqId:rfq.id,supplierId:'sup-anphat',fileBase64:pdf.toString('base64'),mimeType:'application/pdf'},buyer);

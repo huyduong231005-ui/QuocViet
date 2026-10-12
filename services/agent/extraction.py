@@ -5,6 +5,7 @@ import base64
 import binascii
 import io
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -159,6 +160,31 @@ def parse_text(text: str) -> dict[str, Any]:
     return draft
 
 
+def prune_document_for_llm(document: str, max_chars: int = 4000) -> str:
+    """Trim excessive document text to save LLM tokens while preserving quotation details."""
+    if len(document) <= max_chars:
+        return document
+    lines = [line.strip() for line in document.splitlines() if line.strip()]
+    if not lines:
+        return document[:max_chars]
+
+    selected: list[str] = []
+    current_length = 0
+    keywords = re.compile(
+        r"(?:gia|price|don gia|so luong|quantity|qty|giao|delivery|lead|thue|vat|tax|chat luong|quality|han|valid|vnd|usd|dong|\$|₫|\d+)",
+        re.IGNORECASE,
+    )
+    for index, line in enumerate(lines):
+        # Always keep top lines (supplier info, title) or lines containing quote keywords/digits
+        if index < 15 or keywords.search(normalized(line)):
+            if current_length + len(line) + 1 > max_chars:
+                break
+            selected.append(line)
+            current_length += len(line) + 1
+
+    return "\n".join(selected) if selected else document[:max_chars]
+
+
 def extract_quotation(text: str | None = None, file_base64: str | None = None, mime_type: str | None = None, llm=None) -> dict[str, Any]:
     document, method, warnings = read_document(text, file_base64, mime_type)
     draft = parse_text(document)
@@ -166,9 +192,20 @@ def extract_quotation(text: str | None = None, file_base64: str | None = None, m
     field_sources = {field: "parser" for field in draft}
     llm_status = "not_configured"
     tokens = 0
-    if llm is not None and document.strip():
+
+    missing_fields = [field for field in FIELDS if field not in draft]
+    should_skip_llm = False
+    if not missing_fields:
+        should_skip_llm = True
+        llm_status = "skipped_sufficient"
+    elif os.getenv("AGENT_LLM_FALLBACK_ONLY", "false").lower() in ("true", "1") and {"unitPrice", "quantity", "deliveryDays"}.issubset(draft.keys()):
+        should_skip_llm = True
+        llm_status = "skipped_core_fields_present"
+
+    if llm is not None and document.strip() and not should_skip_llm:
         try:
-            candidates, tokens = llm.extract(document)
+            prompt_doc = prune_document_for_llm(document)
+            candidates, tokens = llm.extract(prompt_doc)
             llm_status = "used"
             for field, item in candidates.items():
                 if field not in FIELDS or field in draft or not isinstance(item, dict):

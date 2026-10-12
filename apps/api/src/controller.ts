@@ -62,10 +62,47 @@ export class ApiController {
  @Post('rfqs')rfq(@Req()r:any,@Body()b:any){return this.service.act('rfq',r.actor,b)}
  @Post('quotations')quotation(@Req()r:any,@Body()b:any){return this.service.act('quotation',r.actor,b)}
  @Patch('quotations/:id')quotationUpdate(@Req()r:any,@Body()b:any,@Param('id')id:string){return this.service.act('quotationUpdate',r.actor,b,id)}
+ @Get('quotations/benchmark')async quotationBenchmark(@Query('rfqId')rfqId?:string,@Query('supplierId')supplierId?:string,@Query('productId')productId?:string,@Query('unitPrice')unitPrice?:string,@Query('deliveryDays')deliveryDays?:string){
+  return this.service.benchmark(rfqId,supplierId,productId,unitPrice?Number(unitPrice):undefined,deliveryDays?Number(deliveryDays):undefined);
+ }
+ @Post('email/draft')async draftEmail(@Req()r:any,@Body()b:any){
+  requireThat(['buyer','admin','manager'].includes(r.actor.role),'Bạn không có quyền soạn email',403);
+  try{
+   return await this.agent('/draft-email',b);
+  }catch{
+   const isPo=String(b?.type).toLowerCase()==='po'||String(b?.type).toLowerCase()==='order';
+   const sup=b?.supplierName||'Quý Đối tác';
+   const prod=b?.productName||'hàng hóa';
+   const qty=b?.quantity?`${b.quantity} ${b?.unit||''}`.trim():'';
+   const comp=b?.buyerCompany||'Công ty TNHH Quốc Việt (ProcureIQ)';
+   const buyer=b?.buyerName?`Người phụ trách: ${b.buyerName}${b?.buyerEmail?` (${b.buyerEmail})`:''}`:'';
+   const terms=[b?.paymentTerms&&`- Thanh toán: ${b.paymentTerms}`,b?.deliveryTerms&&`- Giao hàng: ${b.deliveryTerms}`,b?.warranty&&`- Bảo hành: ${b.warranty}`,b?.notes&&`- Yêu cầu thêm: ${b.notes}`].filter(Boolean).join('\n');
+   const termsBlock=terms?`\n${terms}\n`:'';
+   if(isPo){
+    return {
+     subject:`[${comp}] Đơn đặt hàng ${b?.orderId||'PO'} - Kính gửi ${sup}`,
+     body:`Kính gửi: Ban Giám đốc & Phòng Kinh doanh - ${sup},\n\n${comp} trân trọng thông báo quyết định phát hành Đơn đặt hàng đối với mặt hàng:\n- Tên mặt hàng: ${prod}\n- Số lượng: ${qty}\n- Mã đơn hàng: ${b?.orderId||'PO'}\n${termsBlock}\nKính đề nghị Quý Công ty xác nhận đơn hàng và chuẩn bị giao hàng đúng tiến độ.\n\nTrân trọng,\nPhòng Thu mua & Chuỗi Cung ứng - ${comp}\n${buyer}`,
+     source:'fallback',
+     tokensUsed:0,
+    };
+   }
+   return {
+    subject:`[${comp}] Thư mời chào giá ${b?.rfqId||'RFQ'} - Kính gửi ${sup}`,
+    body:`Kính gửi: Ban Giám đốc & Phòng Kinh doanh - ${sup},\n\n${comp} trân trọng kính mời Quý Công ty tham gia gửi báo giá cung cấp mặt hàng:\n- Mặt hàng: ${prod}\n- Số lượng dự kiến: ${qty}\n- Thời hạn nhận báo giá: ${b?.deadline||'3 ngày làm việc'}\n${termsBlock}\nBáo giá chính thức xin gửi về trước thời hạn nêu trên.\n\nRất mong nhận được phản hồi và cơ hội hợp tác.\n\nTrân trọng,\nPhòng Thu mua & Chuỗi Cung ứng - ${comp}\n${buyer}`,
+    source:'fallback',
+    tokensUsed:0,
+   };
+  }
+ }
  @Post('quotations/extract')async extract(@Req()r:any,@Body()b:any){
   requireThat(['buyer','admin'].includes(r.actor.role),'Bạn không có quyền trích xuất báo giá',403);requireThat(this.runtime.extractionEnabled,'Chức năng trích xuất báo giá chưa được bật',403);
   await this.service.extractionContext(b.rfqId,b.supplierId);
-  const result=await this.agent('/extract',{text:b.text,fileBase64:b.fileBase64,mimeType:b.mimeType});return {...result,quotation:{...result.quotation,rfqId:b.rfqId,supplierId:b.supplierId}};
+  const result=await this.agent('/extract',{text:b.text,fileBase64:b.fileBase64,mimeType:b.mimeType});
+  let benchmark:any=null;
+  try{
+   benchmark=await this.service.benchmark(b.rfqId,b.supplierId,undefined,result.quotation?.unitPrice,result.quotation?.deliveryDays);
+  }catch{}
+  return {...result,benchmark,quotation:{...result.quotation,rfqId:b.rfqId,supplierId:b.supplierId}};
  }
  @Post('ahp/compute')ahp(@Req()r:any,@Body()b:any){return this.service.act('ahp',r.actor,b)}
  @Post('ahp/sessions/:id/request-approval')approval(@Req()r:any,@Param('id')id:string){return this.service.act('approval2',r.actor,{},id)}
