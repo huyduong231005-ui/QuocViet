@@ -7,7 +7,7 @@ export interface Supplier extends Entity { name:string; email:string; phone:stri
 export interface Price extends Entity { productId:string; supplierId:string; unitPrice:number; deliveryDays:number; qualityScore:number; }
 export interface RequestLine { id:string; lineNo:number; productId:string; quantity:number; }
 /** `productId` and `quantity` are present only when the request has a single line. */
-export interface Request extends Entity { items:RequestLine[]; productId?:string; quantity?:number; reason:string; status:string; }
+export interface Request extends Entity { items:RequestLine[]; productId?:string; quantity?:number; reason:string; status:string; createdBy?:string; }
 export interface Rfq extends Entity { quotationCount?:number; requestId:string; requestLineId:string; productId:string; quantity:number; supplierIds:string[]; status:string; }
 export interface Quotation extends Entity { rfqId:string; supplierId:string; quantity:number; unitPrice:number; deliveryDays:number; qualityScore:number; vat:number; currency:string; validUntil:string; source?:string; }
 export interface Criterion { id:string; name:string; type?:'cost'|'benefit'; children?:Criterion[]; matrix?:number[][]; }
