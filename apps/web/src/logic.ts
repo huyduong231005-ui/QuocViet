@@ -1,7 +1,7 @@
-export type Role = 'admin' | 'buyer' | 'manager' | 'warehouse' | 'auditor';
+export type Role = 'admin' | 'buyer' | 'manager' | 'auditor';
 export function can(role: Role, action: 'buy' | 'approve' | 'receive' | 'request'): boolean {
   if (role === 'admin') return true;
-  return action === 'buy' ? role === 'buyer' : action === 'approve' ? role === 'manager' : action === 'receive' ? role === 'warehouse' : role === 'buyer' || role === 'manager';
+  return action === 'buy' ? role === 'buyer' : action === 'approve' ? role === 'manager' : action === 'receive' ? role === 'buyer' : role === 'buyer' || role === 'manager';
 }
 export function reciprocal(matrix: number[][], row: number, column: number, value: number): number[][] {
   if (!Number.isFinite(value) || value < 1 / 9 || value > 9) throw new Error('Giá trị Saaty phải nằm trong khoảng 1/9 đến 9.');

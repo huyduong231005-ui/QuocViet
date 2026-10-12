@@ -14,7 +14,7 @@ import {migrationDefinitions} from '../src/database/schema';
 // drops its own database, so nothing is shared and nothing is left behind.
 const adminUrl=process.env.TEST_DATABASE_URL;
 const skip=adminUrl?false:'TEST_DATABASE_URL is not set';
-const buyer={id:'u-buyer',name:'Buyer',role:'buyer'},manager={id:'u-manager',name:'Manager',role:'manager'},warehouse={id:'u-warehouse',name:'Warehouse',role:'warehouse'};
+const buyer={id:'u-buyer',name:'Buyer',role:'buyer'},manager={id:'u-manager',name:'Manager',role:'manager'},receiver=buyer;
 const matrix=[[1,2,4,4],[.5,1,2,2],[.25,.5,1,1],[.25,.5,1,1]];
 
 async function scratch(run:(url:string)=>Promise<void>){
@@ -55,10 +55,10 @@ test('native full flow keeps stock, PO counters, PO status and ledger reconciled
   const service=new Procurement(db);await service.initialize();
   const po=await ordered(service);
   const body={orderId:po.id,quantity:40,acceptedQuantity:38,receivedAt:new Date().toISOString(),idempotencyKey:'native-1'};
-  const receipt=await service.act('receipt',warehouse,body);
-  assert.equal((await service.act('receipt',warehouse,body)).id,receipt.id);
-  await assert.rejects(()=>service.act('receipt',warehouse,{...body,quantity:61,acceptedQuantity:61,idempotencyKey:'native-2'}),/vượt/);
-  await service.act('receipt',warehouse,{...body,quantity:60,acceptedQuantity:60,idempotencyKey:'native-2'});
+  const receipt=await service.act('receipt',receiver,body);
+  assert.equal((await service.act('receipt',receiver,body)).id,receipt.id);
+  await assert.rejects(()=>service.act('receipt',receiver,{...body,quantity:61,acceptedQuantity:61,idempotencyKey:'native-2'}),/vượt/);
+  await service.act('receipt',receiver,{...body,quantity:60,acceptedQuantity:60,idempotencyKey:'native-2'});
   await service.act('evaluation',buyer,{orderId:po.id,qualityScore:90,serviceScore:95});
   const state=await service.bootstrap();
   assert.equal(state.products.find((p:any)=>p.id==='pro-paper').stock,218);
@@ -75,7 +75,7 @@ test('native concurrent receipt lines cannot over-deliver even without any servi
  const first=new Client({connectionString:url}),second=new Client({connectionString:url});await first.connect();await second.connect();
  try{
   const lineId=po.items[0].id;
-  for(const key of ['race-a','race-b'])await first.query(`INSERT INTO procurement.receipts (id,order_id,idempotency_key,received_at,created_by,request_fingerprint,input_payload) VALUES ($1,$2,$1,now(),'u-warehouse',repeat('a',64),'{}')`,[key,po.id]);
+  for(const key of ['race-a','race-b'])await first.query(`INSERT INTO procurement.receipts (id,order_id,idempotency_key,received_at,created_by,request_fingerprint,input_payload) VALUES ($1,$2,$1,now(),'u-buyer',repeat('a',64),'{}')`,[key,po.id]);
   const line=`INSERT INTO procurement.receipt_lines (id,receipt_id,order_id,order_line_id,product_id,quantity,accepted_quantity) VALUES ($1,$1,$2,$3,'pro-paper',60,60)`;
   // 60 + 60 exceeds the 100 ordered. The second insert waits on the PO line
   // row lock and must then fail its CHECK against the committed counter.
@@ -174,8 +174,8 @@ test('native runtime role runs the whole flow but has no DDL and no way into der
    const service=new Procurement(db);await service.initialize();
    const po=await ordered(service);
    const body={orderId:po.id,quantity:40,acceptedQuantity:38,receivedAt:new Date().toISOString(),idempotencyKey:'role-1'};
-   await service.act('receipt',warehouse,body);
-   await service.act('receipt',warehouse,{...body,quantity:60,acceptedQuantity:60,idempotencyKey:'role-2'});
+   await service.act('receipt',receiver,body);
+   await service.act('receipt',receiver,{...body,quantity:60,acceptedQuantity:60,idempotencyKey:'role-2'});
    await service.act('evaluation',buyer,{orderId:po.id,qualityScore:90,serviceScore:95});
    await service.act('send',buyer,{},po.id);
    const created=await service.act('catalog:products:create',buyer,{sku:'ROLE',name:'Role',unit:'cái',minStock:0,stock:0});

@@ -13,7 +13,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from extraction import extract_quotation
-from llm import OptionalLLM
+from llm import GeminiLLM, model_from_environment, template_draft_email
+from configuration import save_gemini_config, validate_gemini_keys
 from workflow import AgentWorkflow, BackendClient, BackendToolError, WorkflowConflict
 
 
@@ -37,9 +38,35 @@ class ExtractionPayload(StrictPayload):
     mimeType: str | None = Field(default=None, max_length=100)
 
 
+class EmailDraftPayload(StrictPayload):
+    type: str = Field(default="rfq", max_length=50)
+    supplierName: str = Field(min_length=1, max_length=200)
+    supplierEmail: str | None = Field(default=None, max_length=254)
+    buyerCompany: str | None = Field(default=None, max_length=200)
+    buyerName: str | None = Field(default=None, max_length=100)
+    buyerEmail: str | None = Field(default=None, max_length=254)
+    buyerPhone: str | None = Field(default=None, max_length=50)
+    productName: str | None = Field(default=None, max_length=200)
+    quantity: float | None = Field(default=None, gt=0, le=1_000_000_000)
+    unit: str | None = Field(default=None, max_length=50)
+    deadline: str | None = Field(default=None, max_length=100)
+    rfqId: str | None = Field(default=None, max_length=100)
+    orderId: str | None = Field(default=None, max_length=100)
+    notes: str | None = Field(default=None, max_length=2000)
+    paymentTerms: str | None = Field(default=None, max_length=500)
+    deliveryTerms: str | None = Field(default=None, max_length=500)
+    warranty: str | None = Field(default=None, max_length=500)
+
+
+class GeminiConfiguration(StrictPayload):
+    keys: list[str] = Field(min_length=1, max_length=20)
+    model: str = Field(default="gemini-3.5-flash-lite", min_length=1, max_length=100)
+
+
 def create_app(workflow: AgentWorkflow | None = None) -> FastAPI:
     demo_mode = os.getenv("DEMO_MODE", "true").lower() in {"1", "true", "yes"}
     api_key = os.getenv("AGENT_API_KEY", "local-demo-agent-key")
+    workflow_enabled = workflow is not None or os.getenv("AGENT_ENABLED", "false").lower() == "true"
     if not demo_mode and api_key == "local-demo-agent-key":
         raise RuntimeError("Set a private AGENT_API_KEY when DEMO_MODE=false")
 
@@ -48,17 +75,20 @@ def create_app(workflow: AgentWorkflow | None = None) -> FastAPI:
         model = None
         service = workflow
         if service is None:
-            model = OptionalLLM.from_environment()
+            model = model_from_environment()
+        if service is None and workflow_enabled:
             backend = BackendClient(os.getenv("BACKEND_URL", "http://127.0.0.1:3000/api"), api_key)
-            service = AgentWorkflow(backend, sqlite_path=os.getenv("AGENT_SQLITE_PATH"), database_url=os.getenv("DATABASE_URL"), demo_mode=demo_mode, llm=model)
+            service = AgentWorkflow(backend, sqlite_path=os.getenv("AGENT_SQLITE_PATH"), database_url=os.getenv("AGENT_DATABASE_URL"), demo_mode=demo_mode, llm=model)
         application.state.workflow = service
-        application.state.model = service.llm
+        application.state.model = service.llm if service else model
+        application.state.models_to_close = [model] if model else []
         try:
             yield
         finally:
-            service.close()
-            if model:
-                model.close()
+            if service:
+                service.close()
+            for instance in application.state.models_to_close:
+                instance.close()
 
     application = FastAPI(title="ProcureIQ Agent", version="1.0.0", lifespan=lifespan)
 
@@ -86,7 +116,17 @@ def create_app(workflow: AgentWorkflow | None = None) -> FastAPI:
 
     @application.get("/health")
     def health():
-        return {"status": "ok", "service": "procureiq-agent", "demoMode": demo_mode, "ocrAvailable": bool(shutil.which("tesseract")), "llmConfigured": bool(os.getenv("LLM_API_KEY"))}
+        model = getattr(application.state, "model", None)
+        return {"status": "ok", "service": "procureiq-agent", "demoMode": demo_mode,
+                "ocrAvailable": bool(shutil.which("tesseract")), "llmConfigured": model is not None,
+                "model": getattr(model, "model", None), "provider": getattr(model, "provider", os.getenv("LLM_PROVIDER", "openai")),
+                "keyCount": len(model.keys) if getattr(model, "provider", None) == "gemini" else (1 if model else 0),
+                "workflowEnabled": workflow_enabled}
+
+    def active_workflow(request: Request):
+        if request.app.state.workflow is None:
+            raise HTTPException(403, "Workflow is disabled; quotation extraction is available separately")
+        return request.app.state.workflow
 
     @application.post("/extract", dependencies=[Depends(require_agent_key)])
     def extract(payload: ExtractionPayload, request: Request):
@@ -97,13 +137,52 @@ def create_app(workflow: AgentWorkflow | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
 
+    @application.post("/draft-email", dependencies=[Depends(require_agent_key)])
+    def draft_email_endpoint(payload: EmailDraftPayload, request: Request):
+        context = payload.model_dump(exclude_none=True)
+        model = request.app.state.model
+        tokens = 0
+        if model is not None and hasattr(model, "draft_email"):
+            try:
+                result, tokens = model.draft_email(context)
+                return {**result, "tokensUsed": tokens, "source": "ai"}
+            except Exception:
+                pass
+        fallback = template_draft_email(context)
+        return {**fallback, "tokensUsed": 0, "source": "template"}
+
+    @application.post("/config/gemini", dependencies=[Depends(require_agent_key)])
+    def configure_gemini(payload: GeminiConfiguration, request: Request):
+        if request.app.state.workflow is not None:
+            raise HTTPException(403, "Configure Gemini while the extraction-only stage is active")
+        try:
+            keys = validate_gemini_keys(payload.keys)
+            candidate = GeminiLLM(keys, payload.model)
+            try:
+                save_gemini_config(keys, payload.model)
+            except Exception:
+                candidate.close()
+                raise
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        except OSError as error:
+            raise HTTPException(503, "Could not save Agent configuration") from error
+        except RuntimeError as error:
+            raise HTTPException(503, str(error)) from error
+        os.environ["LLM_PROVIDER"] = "gemini"
+        os.environ["GEMINI_MODEL"] = payload.model
+        os.environ["GEMINI_API_KEYS"] = ",".join(keys)
+        request.app.state.model = candidate
+        request.app.state.models_to_close.append(candidate)
+        return {"configured": True, "provider": "gemini", "model": payload.model, "keyCount": len(keys)}
+
     @application.post("/runs/start", dependencies=[Depends(require_agent_key)])
     def start(payload: StartRun, request: Request):
-        return request.app.state.workflow.start(payload.runId, payload.productId, payload.quantity)
+        return active_workflow(request).start(payload.runId, payload.productId, payload.quantity)
 
     @application.post("/runs/resume", dependencies=[Depends(require_agent_key)])
     def resume(payload: ResumeRun, request: Request):
-        return request.app.state.workflow.resume(payload.runId)
+        return active_workflow(request).resume(payload.runId)
 
     return application
 

@@ -10,10 +10,13 @@ if ($Build -or -not (Test-Path -LiteralPath $entryFile)) {
   } finally { Pop-Location }
 }
 $port = 3000
+$startAgent = $false
 if (Test-Path -LiteralPath (Join-Path $projectRoot '.env')) {
   $portLine = Get-Content -LiteralPath (Join-Path $projectRoot '.env') | Where-Object { $_ -match '^PORT=\d+$' } | Select-Object -Last 1
   if ($portLine) { $port = [int]($portLine -replace '^PORT=', '') }
+  $startAgent = @(Get-Content -LiteralPath (Join-Path $projectRoot '.env') -Encoding UTF8 | Where-Object { $_ -match '^(AGENT_ENABLED|AGENT_EXTRACTION_ENABLED)=true\s*$' }).Count -gt 0
 }
+if ($startAgent) { & (Join-Path $PSScriptRoot 'start-agent.ps1') }
 try { $health = Invoke-RestMethod "http://127.0.0.1:$port/api/health" -TimeoutSec 2 } catch { $health = $null }
 if ($health.service -eq 'procureiq-api') {
   Write-Host "Ứng dụng đã chạy: http://localhost:$port"

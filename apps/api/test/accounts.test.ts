@@ -20,7 +20,7 @@ test('only an administrator manages accounts, and no response carries a password
  assert.deepEqual(Object.keys(created).sort(),['active','createdAt','email','id','name','role']);
  assert.deepEqual([created.email,created.role,created.active],['thu.mua@example.test','buyer',true]);
  const listed=await accounts.list(admin);
- assert.equal(listed.length,6);assert.equal(JSON.stringify(listed).includes('assword'),false);
+ assert.equal(listed.length,5);assert.equal(JSON.stringify(listed).includes('assword'),false);
  assert.equal((await auth.login('THU.MUA@example.test','MatKhau2026')).user.role,'buyer');
  await assert.rejects(()=>accounts.create(admin,{...fresh,name:'Trùng email'}),(error:any)=>error.statusCode===409);
  for(const bad of [{...fresh,email:'khong-phai-email'},{...fresh,email:'a@example.test',role:'owner'},{...fresh,email:'b@example.test',password:'ngan1'},{...fresh,email:'c@example.test',password:'khongcochuso'},{...fresh,email:'d@example.test',password:'1234567890'}])
@@ -67,10 +67,10 @@ test('a user changes their own password with the current one, and account change
  await assert.rejects(()=>accounts.changeOwnPassword(self,{currentPassword:'sai',newPassword:'MatKhauMoi2027'}),/hiện tại không đúng/);
  await accounts.changeOwnPassword(self,{currentPassword:fresh.password,newPassword:'MatKhauMoi2027'});
  assert.equal((await auth.login(fresh.email,'MatKhauMoi2027')).user.id,created.id);
- await accounts.update(admin,created.id,{name:'Trần Thu Mua',role:'warehouse'});
- await accounts.update(admin,created.id,{role:'warehouse'});
+ await accounts.update(admin,created.id,{name:'Trần Thu Mua',role:'auditor'});
+ await accounts.update(admin,created.id,{role:'auditor'});
  const audit=(await db.transaction(repo=>repo.find('audit',{entityId:created.id}),{readOnly:true})).map(row=>[row.action,row.entityType,row.detail]);
- assert.deepEqual(audit,[['account:create','user',{role:'buyer'}],['account:password','user',{}],['account:update','user',{changes:{role:{before:'buyer',after:'warehouse'}}}],['account:update','user',{}]]);
+ assert.deepEqual(audit,[['account:create','user',{role:'buyer'}],['account:password','user',{}],['account:update','user',{changes:{role:{before:'buyer',after:'auditor'}}}],['account:update','user',{}]]);
  assert.equal(/MatKhau|passwordHash|[0-9a-f]{64}/.test(JSON.stringify(audit)),false);
 }));
 
@@ -84,7 +84,7 @@ test('account routes require a signed-in administrator over HTTP',async()=>{
   const adminToken=(await call('/auth/login','POST',{email:'admin@ahp.local',password:'Demo@12345'})).data.token;
   const created=await call('/accounts','POST',fresh,adminToken);
   assert.equal(created.status,201);assert.equal(created.data.passwordHash,undefined);
-  assert.equal((await call('/accounts','GET',undefined,adminToken)).data.length,6);
+  assert.equal((await call('/accounts','GET',undefined,adminToken)).data.length,5);
   assert.equal((await call(`/accounts/${created.data.id}`,'PATCH',{role:'manager'},adminToken)).data.role,'manager');
   assert.equal((await call(`/accounts/${created.data.id}/password`,'POST',{password:'ngan'},adminToken)).status,400);
   const changed=await call('/auth/password','POST',{currentPassword:'Demo@12345',newPassword:'Demo@2026moi'},buyerToken);

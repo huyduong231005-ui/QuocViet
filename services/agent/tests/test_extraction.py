@@ -61,3 +61,31 @@ def test_invalid_numeric_fields_are_not_invented():
 def test_bad_file_payload_is_rejected():
     with pytest.raises(ValueError, match="base64"):
         extract_quotation(file_base64="@@@", mime_type="application/pdf")
+
+
+def test_prune_document_for_llm_reduces_length_while_keeping_quote_lines():
+    from extraction import prune_document_for_llm
+    filler = "Đây là điều khoản phụ lục hợp đồng rất dài không liên quan đến giá cả.\n" * 200
+    quote_lines = "Đơn giá: 50.000 VND\nSố lượng: 100 cái\nThời gian giao hàng: 5 ngày\n"
+    document = "CÔNG TY BÁO GIÁ ABC\n" + quote_lines + filler
+    assert len(document) > 5000
+    pruned = prune_document_for_llm(document, max_chars=1000)
+    assert len(pruned) <= 1000
+    assert "Đơn giá: 50.000 VND" in pruned
+    assert "Số lượng: 100 cái" in pruned
+
+
+def test_llm_is_skipped_when_deterministic_extraction_is_complete():
+    class MockLLM:
+        called = False
+        def extract(self, doc):
+            self.called = True
+            return {}, 100
+
+    mock_llm = MockLLM()
+    # VIETNAMESE fixture contains all 7 fields
+    result = extract_quotation(text=VIETNAMESE, llm=mock_llm)
+    assert mock_llm.called is False
+    assert result["llmStatus"] == "skipped_sufficient"
+    assert result["tokensUsed"] == 0
+

@@ -7,7 +7,7 @@ import {parseCatalog,buildSampleCatalog} from '../catalog-import';
 
 /** The password of the accounts this command creates. It is public on purpose: it is printed and written in the README. */
 export const DEMO_PASSWORD='Demo@12345';
-const ROLES:Record<string,string>={buyer:'Nhân viên mua hàng',manager:'Quản lý',warehouse:'Thủ kho',auditor:'Kiểm toán'};
+const ROLES:Record<string,string>={buyer:'Nhân viên mua hàng & kho',manager:'Quản lý',auditor:'Kiểm toán'};
 const MATRIX=[[1,2,4,4],[.5,1,2,2],[.25,.5,1,1],[.25,.5,1,1]];
 const FALLBACK_PRICE=50000;
 
@@ -40,7 +40,7 @@ export async function seedDemo(db:Database,demo:boolean):Promise<string[]> {
  }
  const suppliers=data.suppliers.filter((s:RecordData)=>s.active).slice(0,3).map((s:RecordData)=>s.id);
  if(data.products.length<3||suppliers.length<2)throw new Error('The catalog needs at least three products and two active suppliers');
- const {buyer,manager,warehouse}=people;
+ const {buyer,manager}=people;
 
  const request=async(reason:string,items:{productId:string;quantity:number}[],approve=true)=>{
   const filed=await service.act('request',buyer,{reason,items});
@@ -57,7 +57,7 @@ export async function seedDemo(db:Database,demo:boolean):Promise<string[]> {
   await service.act('decide',manager,{approved:true,supplierId:supplierId??session.ranking[0].supplierId,comment:supplierId?'Gộp một nhà cung cấp cho cả đơn':'Chọn theo xếp hạng AHP'},approval.id);
   return session;
  };
- const receive=(order:RecordData,items:{orderLineId:string;quantity:number;acceptedQuantity:number}[])=>service.act('receipt',warehouse,{orderId:order.id,receivedAt:new Date().toISOString(),idempotencyKey:randomUUID(),notes:'',items});
+ const receive=(order:RecordData,items:{orderLineId:string;quantity:number;acceptedQuantity:number}[])=>service.act('receipt',buyer,{orderId:order.id,receivedAt:new Date().toISOString(),idempotencyKey:randomUUID(),notes:'',items});
  const [first,second,third,fourth]=data.products;
 
  const done=await request('Bổ sung hàng cho quý 4',[{productId:first.id,quantity:100}]);

@@ -5,7 +5,7 @@ import {Database} from '../src/db';
 import {Procurement} from '../src/procurement';
 import {buildExcel,buildPdf,safeCell} from '../src/reports';
 
-const buyer={id:'u-buyer',name:'Buyer',role:'buyer'},manager={id:'u-manager',name:'Manager',role:'manager'},warehouse={id:'u-warehouse',name:'Warehouse',role:'warehouse'};
+const buyer={id:'u-buyer',name:'Buyer',role:'buyer'},manager={id:'u-manager',name:'Manager',role:'manager'},receiver=buyer;
 const matrix=[[1,2,4,4],[.5,1,2,2],[.25,.5,1,1],[.25,.5,1,1]];
 
 test('stock ledger and Excel report name products, suppliers and documents instead of internal IDs',async()=>{
@@ -20,13 +20,13 @@ test('stock ledger and Excel report name products, suppliers and documents inste
   const session=await s.act('ahp',buyer,{rfqId:rfq.id,matrix,iterations:100});
   await s.act('decide',manager,{approved:true,supplierId:'sup-anphat',comment:'Chọn An Phát'},(await s.act('approval2',buyer,{},session.id)).id);
   const po=await s.act('order',buyer,{sessionId:session.id});
-  await s.act('receipt',warehouse,{orderId:po.id,quantity:4,acceptedQuantity:3,receivedAt:new Date().toISOString(),idempotencyKey:'report-1',notes:'-1 ram hỏng'});
+  await s.act('receipt',receiver,{orderId:po.id,quantity:4,acceptedQuantity:3,receivedAt:new Date().toISOString(),idempotencyKey:'report-1',notes:'-1 ram hỏng'});
   const data=await s.bootstrap();
 
   // Newest first; each row carries the balance it left and what caused it.
   const paper=data.movements.filter((m:any)=>m.productId==='pro-paper');
   assert.deepEqual(paper.map((m:any)=>[m.kind,m.delta,m.balanceAfter,m.actorName,m.supplierName,m.orderId]),
-   [['RECEIPT',3,123,'Thủ kho','Văn phòng phẩm An Phát',po.id],['OPENING',120,120,'Hệ thống',undefined,undefined]]);
+   [['RECEIPT',3,123,'Nhân viên mua hàng & kho','Văn phòng phẩm An Phát',po.id],['OPENING',120,120,'Hệ thống',undefined,undefined]]);
   assert.equal(data.movements.length,6);
 
   const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(await buildExcel(data) as any);

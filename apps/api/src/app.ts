@@ -28,13 +28,15 @@ class Access implements CanActivate {
   req.actor=await this.auth.authenticate(req.headers.authorization);return true;
  }
 }
-export interface AppOptions {dataDir?:string;databaseUrl?:string;demo?:boolean;secret?:string;agentEnabled?:boolean;agentKey?:string;logger?:boolean}
+export interface AppOptions {dataDir?:string;databaseUrl?:string;demo?:boolean;secret?:string;agentEnabled?:boolean;agentExtractionEnabled?:boolean;agentUrl?:string;agentKey?:string;logger?:boolean}
 export async function createApp(options:AppOptions={}) {
  const demo=options.demo??process.env.DEMO_MODE!=='false',secret=options.secret||process.env.JWT_SECRET||(demo?'local-demo-jwt-secret-change-before-deployment':'');
  if(!demo&&(!secret||secret.length<32||!process.env.ADMIN_EMAIL||!process.env.ADMIN_PASSWORD))throw new Error('Production cần JWT_SECRET >=32 ký tự, ADMIN_EMAIL, ADMIN_PASSWORD');
  const root=resolve(__dirname,'../../..'),db=await Database.open(options.dataDir||process.env.DATA_DIR||resolve(root,'.data/postgres'),options.databaseUrl||process.env.DATABASE_URL);
- const service=new Procurement(db,demo);service.mailer=mailerFromEnv();service.sender=process.env.MAIL_FROM_NAME||service.sender;await service.initialize();const auth=new Auth(db,secret),runtime=new Runtime(options.agentEnabled??process.env.AGENT_ENABLED==='true',options.agentKey||process.env.AGENT_API_KEY||'local-demo-agent-key');
- if(!demo&&runtime.agentEnabled&&runtime.agentKey==='local-demo-agent-key')throw new Error('Production cần AGENT_API_KEY riêng');
+ const service=new Procurement(db,demo);service.mailer=mailerFromEnv();service.sender=process.env.MAIL_FROM_NAME||service.sender;await service.initialize();const auth=new Auth(db,secret);
+ const workflowEnabled=options.agentEnabled??process.env.AGENT_ENABLED==='true';
+ const runtime=new Runtime(workflowEnabled,options.agentKey||process.env.AGENT_API_KEY||'local-demo-agent-key',workflowEnabled||(options.agentExtractionEnabled??process.env.AGENT_EXTRACTION_ENABLED==='true'),options.agentUrl);
+ if(!demo&&(runtime.agentEnabled||runtime.extractionEnabled)&&runtime.agentKey==='local-demo-agent-key')throw new Error('Production cần AGENT_API_KEY riêng');
  @Module({controllers:[ApiController],providers:[{provide:Procurement,useValue:service},{provide:Auth,useValue:auth},{provide:Accounts,useValue:new Accounts(db)},{provide:Runtime,useValue:runtime},Access]})class AppModule{}
  const app=await NestFactory.create<NestExpressApplication>(AppModule,{logger:options.logger?['error','warn','log']:false,bodyParser:false});
  app.setGlobalPrefix('api');app.use(json({limit:'10mb'}));app.useGlobalGuards(app.get(Access));app.useGlobalFilters(new Errors());

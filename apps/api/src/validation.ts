@@ -13,7 +13,7 @@ export const quotationSchema=z.object({rfqId:id,supplierId:id,quantity:positive.
 export const receiptSchema=z.object({orderId:id,quantity:positive.int(),acceptedQuantity:num.int().nonnegative(),receivedAt:z.iso.datetime({offset:true}),idempotencyKey:id,notes:z.string().max(2000).default('')});
 export const receiptItemsSchema=z.object({orderId:id,receivedAt:z.iso.datetime({offset:true}),idempotencyKey:id,notes:z.string().max(2000).default(''),items:z.array(z.object({orderLineId:id,quantity:positive.int(),acceptedQuantity:num.int().nonnegative()})).min(1).max(LINES)});
 export const evaluationSchema=z.object({orderId:id,qualityScore:score,serviceScore:score,notes:z.string().max(2000).default('')});
-const role=z.enum(['admin','buyer','manager','warehouse','auditor'],{message:'Vai trò không hợp lệ'});
+const role=z.enum(['admin','buyer','manager','auditor'],{message:'Vai trò không hợp lệ'});
 const password=z.string().min(8,'Mật khẩu cần ít nhất 8 ký tự').max(256,'Mật khẩu quá dài').regex(/\p{L}/u,'Mật khẩu cần có chữ cái').regex(/\d/,'Mật khẩu cần có chữ số');
 const email=z.email('Email không hợp lệ').max(254).transform(value=>value.toLowerCase());
 const personName=z.string('Nhập họ tên').trim().min(1,'Nhập họ tên').max(500,'Họ tên quá dài');

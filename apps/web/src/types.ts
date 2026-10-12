@@ -7,7 +7,7 @@ export interface Supplier extends Entity { name:string; email:string; phone:stri
 export interface Price extends Entity { productId:string; supplierId:string; unitPrice:number; deliveryDays:number; qualityScore:number; }
 export interface RequestLine { id:string; lineNo:number; productId:string; quantity:number; }
 /** `productId` and `quantity` are present only when the request has a single line. */
-export interface Request extends Entity { items:RequestLine[]; productId?:string; quantity?:number; reason:string; status:string; }
+export interface Request extends Entity { items:RequestLine[]; productId?:string; quantity?:number; reason:string; status:string; createdBy?:string; }
 export interface Rfq extends Entity { quotationCount?:number; requestId:string; requestLineId:string; productId:string; quantity:number; supplierIds:string[]; status:string; }
 export interface Quotation extends Entity { rfqId:string; supplierId:string; quantity:number; unitPrice:number; deliveryDays:number; qualityScore:number; vat:number; currency:string; validUntil:string; source?:string; }
 export interface Criterion { id:string; name:string; type?:'cost'|'benefit'; children?:Criterion[]; matrix?:number[][]; }
@@ -29,5 +29,21 @@ export interface Audit extends Entity {actorId?:string;actor?:string;actorName?:
 export interface Dashboard {totalProducts:number;totalSuppliers:number;pendingApprovals:number;activeOrders:number;inventoryValue:number|null;warnings:string[];monthlySpend:{month:string;value:number|null;historyValue:number|null;orderValue:number|null}[];supplierPerformance:{supplierId:string;name:string;score:number}[];forecast:{productId:string;name:string;forecast:number;stock:number;reorderQuantity:number}[];}
 /** Master data plus the working set: documents still in progress and those created since `workspaceSince`. Older documents are read through the paged lists. */
 /** `mailEnabled`: RFQ and PO mail really leaves; otherwise it is only queued. */
-export interface Bootstrap {workspaceSince?:string;businessDate:string;demoMode?:boolean;mailEnabled?:boolean;agentEnabled?:boolean;products:Product[];suppliers:Supplier[];prices:Price[];requests:Request[];rfqs:Rfq[];quotations:Quotation[];ahpSessions:Session[];orders:Order[];receipts:Receipt[];evaluations:Evaluation[];inventory:Inventory[];agentRuns:Run[];agentSteps:AgentStep[];approvals:Approval[];history:History[];criteria:Criterion[];dashboard:Dashboard;}
-export interface Extraction {quotation:Partial<Quotation>;confidence:number;warnings:string[];method:string;}
+export interface Bootstrap {workspaceSince?:string;businessDate:string;demoMode?:boolean;mailEnabled?:boolean;agentEnabled?:boolean;extractionEnabled?:boolean;products:Product[];suppliers:Supplier[];prices:Price[];requests:Request[];rfqs:Rfq[];quotations:Quotation[];ahpSessions:Session[];orders:Order[];receipts:Receipt[];evaluations:Evaluation[];inventory:Inventory[];agentRuns:Run[];agentSteps:AgentStep[];approvals:Approval[];history:History[];criteria:Criterion[];dashboard:Dashboard;}
+export interface AnomalyWarning { field?:string; level:'danger'|'warning'|'info'; message:string; diffPercent?:number; }
+export interface Benchmark {
+ hasHistory: boolean;
+ supplier: { id:string; name:string; reputation:number; };
+ product: { id:string; name:string; sku:string; unit:string; };
+ baselinePrice?: number;
+ baselineSource?: string;
+ marketAvgPrice?: number;
+ catalogPrice?: { unitPrice:number; deliveryDays:number; qualityScore:number; };
+ recentQuotes?: { unitPrice:number; deliveryDays:number; createdAt:string; }[];
+ recentEvaluations?: { overallScore:number; qualityScore:number; deliveryScore:number; createdAt:string; }[];
+ priceComparison?: { currentPrice:number; baselinePrice:number; baselineSource:string; diffPercent:number; status:'cheaper'|'normal'|'slight_increase'|'high_increase'; };
+ deliveryComparison?: { currentDays:number; baselineDays:number; status:'delayed'|'normal'; };
+ warnings: AnomalyWarning[];
+}
+export interface Extraction {quotation:Partial<Quotation>;confidence:number;coverage?:number;missingFields?:string[];warnings:string[];method:string;tokensUsed?:number;llmStatus?:'used'|'failed'|'not_configured'|'rate_limited'|'skipped_sufficient'|'skipped_core_fields_present';evidence?:Record<string,string>;fieldSources?:Record<string,'parser'|'model'>;benchmark?:Benchmark;}
+export interface AgentStatus {enabled:boolean;extractionEnabled:boolean;reachable:boolean;llmConfigured:boolean;ocrAvailable:boolean;model:string|null;provider:string|null;keyCount:number;}
