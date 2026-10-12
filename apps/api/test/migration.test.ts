@@ -44,6 +44,7 @@ test('legacy migration preserves all public IDs, hashes, snapshots and Agent cyc
    const actual=after.find(r=>r.id===original.id)!;
    // The old store left an ordered RFQ open; the schema closes it with its PO.
    if(table==='rfqs'){assert.equal(actual.status,'closed');delete (original as any).status}
+   if(table==='users'&&original.role==='warehouse'){assert.equal(actual.role,'buyer');delete (original as any).role}
    for(const key of Object.keys(original))if(key!=='items'&&key!=='requestLineId')assert.deepEqual(actual[key],['createdAt','updatedAt','sentAt','decidedAt','receivedAt'].includes(key)?isoTimestamp(original[key]):original[key],`${table}.${key}`);
   }}});
   await db.close();db=undefined;pg=new PGlite(path);

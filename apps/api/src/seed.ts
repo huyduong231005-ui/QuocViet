@@ -5,8 +5,8 @@ export async function seed(repo:Repository,demo=true){
  const users=await repo.list('users');
  if(users.length){requireThat(demo||!users.some(u=>u.demo===true||(u.demo===undefined&&u.email.endsWith('@ahp.local'))),'Không dùng CSDL demo cho production. Hãy cấu hình DATABASE_URL hoặc DATA_DIR mới.');return}
  const now=new Date().toISOString();
- const roles=demo?['admin','buyer','manager','warehouse','auditor']:['admin'];
- for(const role of roles)await repo.put('users',{id:`u-${role}`,createdAt:now,demo,name:({admin:'Quản trị viên',buyer:'Nhân viên mua hàng',manager:'Quản lý',warehouse:'Thủ kho',auditor:'Kiểm toán'} as any)[role],role,email:demo?`${role}@ahp.local`:process.env.ADMIN_EMAIL,passwordHash:hashPassword(demo?(process.env.DEMO_PASSWORD||'Demo@12345'):process.env.ADMIN_PASSWORD!)});
+ const roles=demo?['admin','buyer','manager','auditor']:['admin'];
+ for(const role of roles)await repo.put('users',{id:`u-${role}`,createdAt:now,demo,name:({admin:'Quản trị viên',buyer:'Nhân viên mua hàng & kho',manager:'Quản lý',auditor:'Kiểm toán'} as any)[role],role,email:demo?`${role}@ahp.local`:process.env.ADMIN_EMAIL,passwordHash:hashPassword(demo?(process.env.DEMO_PASSWORD||'Demo@12345'):process.env.ADMIN_PASSWORD!)});
  if(!demo)return;
  const products=[{id:'pro-paper',sku:'VP-A4-80',name:'Giấy A4 Double A 80gsm',unit:'ram',stock:120,minStock:200},{id:'pro-toner',sku:'VP-TN-12A',name:'Mực in HP 12A',unit:'hộp',stock:18,minStock:20},{id:'pro-pen',sku:'VP-BP-01',name:'Bút bi Thiên Long',unit:'hộp',stock:48,minStock:30},{id:'pro-folder',sku:'VP-FL-A4',name:'Bìa hồ sơ A4',unit:'cái',stock:350,minStock:200},{id:'pro-tape',sku:'VP-TP-48',name:'Băng keo 48mm',unit:'cuộn',stock:65,minStock:50}];
  const suppliers=[{id:'sup-anphat',name:'Văn phòng phẩm An Phát',email:'anphat@example.test',phone:'0901234567',reputation:94,active:true},{id:'sup-minhchau',name:'Minh Châu Trading',email:'minhchau@example.test',phone:'0902345678',reputation:89,active:true},{id:'sup-thienlong',name:'Thiên Long Supply',email:'thienlong@example.test',phone:'0903456789',reputation:96,active:true}];

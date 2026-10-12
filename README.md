@@ -4,12 +4,14 @@
 
 | Bước | Nội dung | Trạng thái |
 | --- | --- | --- |
-| 1 | Đăng nhập, 5 vai trò, mặt hàng, nhà cung cấp, giá tham khảo | Đã triển khai, kiểm thử |
+| 1 | Đăng nhập, 4 vai trò, mặt hàng, nhà cung cấp, giá tham khảo | Đã triển khai, kiểm thử |
 | 2 | Nhu cầu mua → duyệt nhu cầu → RFQ → nhập báo giá thủ công | Đã triển khai, kiểm thử |
 | 3 | Cây tiêu chí, so sánh cặp, trọng số AHP, CI/CR, xếp hạng, duyệt lựa chọn | Đã triển khai, kiểm thử |
 | 4 | Đơn mua → nhận nhiều đợt → cập nhật tồn kho → đánh giá nhà cung cấp | Đã triển khai, kiểm thử |
 | 5 | Dashboard, dự báo trung bình trượt, Monte Carlo, độ nhạy, PDF/Excel, nhật ký | Đã triển khai; kiểm thử tính toán, tải báo cáo và giao diện |
 | 6 | Tích hợp AI Agent, OCR, mô hình thật, bộ 30 tài liệu có nhãn | Để sau; mã khung nằm trong `services/agent` |
+
+Thu mua và Kho được gộp thành **Mua hàng & kho** (mã quyền `buyer`). Tài khoản Kho cũ được migration 003 chuyển sang quyền này, giữ ID, email, mật khẩu và liên kết chứng từ. Các phiên đăng nhập Kho cũ hết hiệu lực và cần đăng nhập lại. Nhật ký lịch sử giữ nguyên vai trò lúc thao tác. Quản lý vẫn duyệt hai bước; AI Agent vẫn có trong menu.
 
 ## Mở ứng dụng
 
@@ -27,12 +29,11 @@ Khi chạy `DEMO_MODE=true`, tài khoản demo có chung mật khẩu **Demo@123
 | Email | Quyền |
 | --- | --- |
 | admin@ahp.local | Toàn bộ nghiệp vụ demo |
-| buyer@ahp.local | Danh mục, nhu cầu, RFQ, báo giá, AHP, PO, đánh giá |
+| buyer@ahp.local | Mua hàng & kho: danh mục, nhu cầu, RFQ, báo giá, AHP, PO, nhận hàng, đánh giá |
 | manager@ahp.local | Tạo nhu cầu, duyệt hai điểm kiểm soát |
-| warehouse@ahp.local | Nhận hàng và xem dữ liệu |
 | auditor@ahp.local | Xem dữ liệu và xuất báo cáo |
 
-Đây là tài khoản mô phỏng, chỉ tồn tại khi chạy `DEMO_MODE=true`. Ở chế độ thật, quản trị viên tạo tài khoản cho từng người tại trang **Tài khoản**: chọn một trong năm vai trò, khóa/mở, đặt lại mật khẩu. Mỗi người tự đổi mật khẩu ở menu góc trên bên phải. Khóa tài khoản, đổi vai trò hoặc đổi mật khẩu làm phiên đăng nhập cũ hết hiệu lực ngay.
+Đây là tài khoản mô phỏng, chỉ tồn tại khi chạy `DEMO_MODE=true`. Ở chế độ thật, quản trị viên tạo tài khoản cho từng người tại trang **Tài khoản**: chọn một trong bốn vai trò, khóa/mở, đặt lại mật khẩu. Mỗi người tự đổi mật khẩu ở menu góc trên bên phải. Khóa tài khoản, đổi vai trò hoặc đổi mật khẩu làm phiên đăng nhập cũ hết hiệu lực ngay.
 
 ## Cài ở máy khác
 
@@ -61,7 +62,7 @@ npm.cmd run db demo
 
 Lệnh này ghi một câu chuyện nhỏ nhưng trọn vẹn: một đơn mua đã nhận đủ và đã đánh giá, một đơn mua hai mặt hàng đang nhận dở, và một nhu cầu đang chờ duyệt. Dữ liệu được ghi qua đúng lớp nghiệp vụ mà giao diện dùng, vào đúng CSDL mà ứng dụng sẽ mở (PGlite khi chưa có `DATABASE_URL`, PostgreSQL khi có). Lệnh từ chối chạy nếu CSDL đã có yêu cầu mua, nên không ghi đè dữ liệu thật.
 
-Với `DEMO_MODE=true`, đăng nhập bằng các tài khoản `@ahp.local` ở bảng trên. Với `DEMO_MODE=false`, lệnh tạo thêm tài khoản cho những vai trò còn thiếu (`buyer@demo.local`, `manager@demo.local`, `warehouse@demo.local`, `auditor@demo.local`, mật khẩu **Demo@12345**) và nhập danh mục mẫu nếu danh mục đang trống. Các tài khoản này có mật khẩu công khai: đổi mật khẩu hoặc khóa chúng trước khi dùng thật.
+Với `DEMO_MODE=true`, đăng nhập bằng các tài khoản `@ahp.local` ở bảng trên. Với `DEMO_MODE=false`, lệnh tạo thêm tài khoản cho những vai trò còn thiếu (`buyer@demo.local`, `manager@demo.local`, `auditor@demo.local`, mật khẩu **Demo@12345**) và nhập danh mục mẫu nếu danh mục đang trống. Các tài khoản này có mật khẩu công khai: đổi mật khẩu hoặc khóa chúng trước khi dùng thật.
 
 Các script `scripts/start.ps1` và `scripts/stop.ps1` dùng UTF-8 có BOM để Windows PowerShell 5.1 đọc đúng tiếng Việt. Kiểm tra cú pháp bằng `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/powershell.test.ps1`.
 
@@ -72,7 +73,7 @@ Các script `scripts/start.ps1` và `scripts/stop.ps1` dùng UTF-8 có BOM để
 3. Tạo RFQ cho từng mặt hàng của nhu cầu đã duyệt, chọn ít nhất hai nhà cung cấp; nhập báo giá còn hiệu lực, giá VND nguyên và VAT tối đa hai chữ số thập phân.
 4. Vào **Workspace AHP**, chọn RFQ, chỉnh cây/ma trận và bấm **Tính AHP**. CR >0,1 bị chặn gửi duyệt. Thay đổi báo giá làm phiên cũ mất hiệu lực và cần tính lại.
 5. Gửi duyệt lựa chọn; quản lý quyết định. Nếu chọn khác nhà cung cấp đứng đầu phải ghi lý do. Sau duyệt, vào **Đơn mua & nhập kho → Chờ lập PO**: các lựa chọn của cùng một nhà cung cấp được gộp thành một PO, mỗi mặt hàng một dòng.
-6. Thủ kho nhận từng đợt, ghi số giao và số đạt cho từng dòng. Số lượng giao không vượt PO; chỉ số lượng đạt yêu cầu tăng tồn kho. Khi nhận đủ mới đánh giá NCC; điểm này được dùng ở các lần AHP sau.
+6. Nhân viên Mua hàng & kho nhận từng đợt, ghi số giao và số đạt cho từng dòng. Số lượng giao không vượt PO; chỉ số lượng đạt yêu cầu tăng tồn kho. Khi nhận đủ mới đánh giá NCC; điểm này được dùng ở các lần AHP sau.
 7. Xem tồn kho/dự báo, nhật ký và tải PDF/Excel.
 
 RFQ và nút **Gửi PO** hiện ghi vào hộp gửi mô phỏng trong cơ sở dữ liệu; chưa gửi email cho nhà cung cấp. Lịch sử 24 tháng, thông tin nhà cung cấp và kết quả demo đều là dữ liệu mô phỏng.
@@ -128,6 +129,7 @@ Lưu ý khi trình diễn: mỗi địa chỉ máy được thử đăng nhập 
 - [Kết quả kiểm thử và giới hạn](docs/test-report.md)
 - [Thiết kế, API và quy tắc nghiệp vụ](docs/design.md)
 - [Kế hoạch theo giai đoạn](docs/superpowers/plans/2026-10-11-procurement.md)
-- [Mã khung AI Agent để tiếp tục sau](services/agent/README.md)
+- [AI đọc báo giá: cấu hình API và demo](docs/agent-integration.md)
+- [Dịch vụ Python Agent và phần còn lại](services/agent/README.md)
 
 Để chuyển sang dữ liệu thật cần cơ sở dữ liệu mới, `DEMO_MODE=false`, `JWT_SECRET` >=32 ký tự và thông tin admin riêng. API từ chối dùng lại cơ sở dữ liệu đã seed tài khoản demo. Việc triển khai công khai, SMTP thật, sao lưu vận hành, quản lý người dùng và nghiệm thu với người dùng/giảng viên là các bước riêng chưa thực hiện.

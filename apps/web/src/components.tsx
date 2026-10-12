@@ -9,7 +9,7 @@ export const number = (n:number) => new Intl.NumberFormat('vi-VN',{maximumFracti
 export const percent = (n:number) => `${number(n*100)}%`;
 export const date = (value?:string) => value ? new Date(value).toLocaleString('vi-VN',{dateStyle:'short',timeStyle:'short'}) : '—';
 export const day = (value?:string) => value ? new Date(value).toLocaleDateString('vi-VN') : '—';
-export const roleNames:Record<string,string>={admin:'Quản trị viên',buyer:'Thu mua',manager:'Quản lý',warehouse:'Kho',auditor:'Kiểm toán'};
+export const roleNames:Record<string,string>={admin:'Quản trị viên',buyer:'Mua hàng & kho',manager:'Quản lý',auditor:'Kiểm toán'};
 export const shortId = (id?:string) => id ? id.slice(0,8).toUpperCase() : '—';
 const labels:Record<string,string>={pending:'Chờ duyệt',approved:'Đã duyệt',rejected:'Từ chối',cancelled:'Đã hủy',open:'Đang mở',closed:'Đã có PO',pending_approval:'Chờ duyệt lựa chọn',partially_received:'Nhận một phần',ready_to_order:'Sẵn sàng tạo PO',denied:'Bị chặn',draft:'Bản nháp',stale:'Cần tính lại',ordered:'Đã đặt',partial:'Nhận một phần',received:'Đã nhận đủ',completed:'Hoàn tất',starting:'Khởi động',waiting_approval_1:'Chờ duyệt nhu cầu',collecting:'Thu thập báo giá',waiting_approval_2:'Chờ duyệt lựa chọn',error:'Có lỗi',success:'Thành công',sent:'Đã gửi',running:'Đang chạy'};
 export const statusLabel=(value:string)=>labels[value]||value;

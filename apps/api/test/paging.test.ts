@@ -61,7 +61,7 @@ test('the web bootstrap leaves the growing logs out; they are read through their
 
 test('document lists reach every document, while the workspace keeps only open or recent ones',async()=>{
  const db=await Database.open(':memory:');let time=new Date();const s=new Procurement(db,true,()=>time);await s.initialize();
- const warehouse={id:'u-warehouse',name:'Warehouse',role:'warehouse'},matrix=[[1,2,4,4],[.5,1,2,2],[.25,.5,1,1],[.25,.5,1,1]];
+ const receiver=buyer,matrix=[[1,2,4,4],[.5,1,2,2],[.25,.5,1,1],[.25,.5,1,1]];
  const gate1=async(requestId:string)=>(await s.documents('approvals',{status:'pending'})).rows.find(row=>row.requestId===requestId)!;
  try{
   // A: a finished chain. B: waiting for gate 1. C: approved, no RFQ yet. D: ordered, not received.
@@ -75,7 +75,7 @@ test('document lists reach every document, while the workspace keeps only open o
    return {request,rfq,po:await s.act('order',buyer,{sessionId:session.id})};
   };
   const a=await order('pro-paper');
-  await s.act('receipt',warehouse,{orderId:a.po.id,quantity:10,acceptedQuantity:9,receivedAt:new Date().toISOString(),idempotencyKey:'page-a',notes:'Đủ hàng'});
+  await s.act('receipt',receiver,{orderId:a.po.id,quantity:10,acceptedQuantity:9,receivedAt:new Date().toISOString(),idempotencyKey:'page-a',notes:'Đủ hàng'});
   await s.act('evaluation',buyer,{orderId:a.po.id,qualityScore:90,serviceScore:90});
   const b=await s.act('request',buyer,{productId:'pro-pen',quantity:3,reason:'Chờ duyệt'});
   const c=await s.act('request',buyer,{productId:'pro-tape',quantity:4,reason:'Đã duyệt chưa RFQ'});

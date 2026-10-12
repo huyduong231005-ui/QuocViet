@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { can, reciprocal, eligibleSession, receiptPayload, isCurrentQuotation, reorderMatrix, invitedSupplierOptions, describeLines, linesLabel, openRequestLines, poCandidates, receiptItemsPayload, flowStations } from '../src/logic.ts';
-test('buyer can purchase but cannot approve; warehouse can receive only', () => {
+test('buying and warehouse role can purchase and receive but cannot approve', () => {
   assert.equal(can('buyer', 'buy'), true); assert.equal(can('buyer', 'approve'), false);
-  assert.equal(can('warehouse', 'receive'), true); assert.equal(can('warehouse', 'buy'), false);
+  assert.equal(can('buyer', 'receive'), true);
+  assert.equal(can('manager', 'receive'), false); assert.equal(can('auditor', 'receive'), false);
   assert.equal(can('manager', 'request'), true); assert.equal(can('auditor', 'request'), false);
 });
 test('editing one pair preserves reciprocity and the immutable previous matrix', () => {
@@ -80,6 +81,6 @@ test('the purchase line counts what waits at each stop and marks the stops waiti
   // l3 has no RFQ yet and q1 has only a stale session, so two things still need quotations.
   assert.deepEqual(stops('manager'), {requests:[1,true],quotes:[2,false],ahp:[1,false],choice:[1,true],orders:[2,false],evaluate:[1,false]});
   assert.deepEqual(stops('buyer'), {requests:[1,false],quotes:[2,true],ahp:[1,true],choice:[1,false],orders:[2,true],evaluate:[1,true]});
-  assert.deepEqual(stops('warehouse').orders, [2,true]);
-  assert.equal(flowStations({...data,orders:[]}, 'warehouse')[4].mine, false);
+  assert.deepEqual(stops('buyer').orders, [2,true]);
+  assert.equal(flowStations({...data,orders:[]}, 'buyer')[4].mine, false);
 });

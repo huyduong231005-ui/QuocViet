@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {Database} from '../src/db';
 import {Procurement} from '../src/procurement';
 
-const buyer={id:'u-buyer',name:'Buyer',role:'buyer'},manager={id:'u-manager',name:'Manager',role:'manager'},warehouse={id:'u-warehouse',name:'Warehouse',role:'warehouse'};
+const buyer={id:'u-buyer',name:'Buyer',role:'buyer'},manager={id:'u-manager',name:'Manager',role:'manager'},receiver=buyer;
 const matrix=[[1,2,4,4],[.5,1,2,2],[.25,.5,1,1],[.25,.5,1,1]];
 const approvalOf=async(s:Procurement,requestId:string)=>(await s.bootstrap()).approvals.find((a:any)=>a.requestId===requestId&&a.gate===1);
 
@@ -62,22 +62,22 @@ test('one PO groups approved lines of one supplier; receipts post each line by i
 
  const [paper,toner]=po.items,at=new Date().toISOString();
  const receipt=(key:string,items:any[])=>({orderId:po.id,receivedAt:at,idempotencyKey:key,notes:'',items});
- await assert.rejects(()=>s.act('receipt',warehouse,{orderId:po.id,quantity:1,acceptedQuantity:1,receivedAt:at,idempotencyKey:'flat'}),/từng dòng/);
- await assert.rejects(()=>s.act('receipt',warehouse,receipt('dup',[{orderLineId:paper.id,quantity:1,acceptedQuantity:1},{orderLineId:paper.id,quantity:1,acceptedQuantity:1}])),/một lần/);
- await assert.rejects(()=>s.act('receipt',warehouse,receipt('foreign',[{orderLineId:'another-line',quantity:1,acceptedQuantity:1}])),/không thuộc PO/);
- await assert.rejects(()=>s.act('receipt',warehouse,receipt('over',[{orderLineId:paper.id,quantity:40,acceptedQuantity:40},{orderLineId:toner.id,quantity:9,acceptedQuantity:9}])),/vượt số lượng PO: Mực in/);
+ await assert.rejects(()=>s.act('receipt',receiver,{orderId:po.id,quantity:1,acceptedQuantity:1,receivedAt:at,idempotencyKey:'flat'}),/từng dòng/);
+ await assert.rejects(()=>s.act('receipt',receiver,receipt('dup',[{orderLineId:paper.id,quantity:1,acceptedQuantity:1},{orderLineId:paper.id,quantity:1,acceptedQuantity:1}])),/một lần/);
+ await assert.rejects(()=>s.act('receipt',receiver,receipt('foreign',[{orderLineId:'another-line',quantity:1,acceptedQuantity:1}])),/không thuộc PO/);
+ await assert.rejects(()=>s.act('receipt',receiver,receipt('over',[{orderLineId:paper.id,quantity:40,acceptedQuantity:40},{orderLineId:toner.id,quantity:9,acceptedQuantity:9}])),/vượt số lượng PO: Mực in/);
  const first=receipt('batch-1',[{orderLineId:paper.id,quantity:40,acceptedQuantity:38},{orderLineId:toner.id,quantity:8,acceptedQuantity:7}]);
- const saved=await s.act('receipt',warehouse,first);
+ const saved=await s.act('receipt',receiver,first);
  assert.equal(saved.items.length,2);
  // The same lines sent in the other order are the same request.
- assert.equal((await s.act('receipt',warehouse,{...first,items:[...first.items].reverse()})).id,saved.id);
- await assert.rejects(()=>s.act('receipt',warehouse,{...first,items:[first.items[0]]}),/idempotency/);
+ assert.equal((await s.act('receipt',receiver,{...first,items:[...first.items].reverse()})).id,saved.id);
+ await assert.rejects(()=>s.act('receipt',receiver,{...first,items:[first.items[0]]}),/idempotency/);
  let state=await s.bootstrap();
  assert.deepEqual([state.products.find((p:any)=>p.id==='pro-paper').stock,state.products.find((p:any)=>p.id==='pro-toner').stock],[158,25]);
  assert.equal(state.orders.find((o:any)=>o.id===po.id).status,'partially_received');
  await assert.rejects(()=>s.act('evaluation',buyer,{orderId:po.id,qualityScore:90,serviceScore:90}),/nhận đủ/);
  // Only the paper line is still open; a later receipt may cover just that line.
- await s.act('receipt',warehouse,receipt('batch-2',[{orderLineId:paper.id,quantity:60,acceptedQuantity:60}]));
+ await s.act('receipt',receiver,receipt('batch-2',[{orderLineId:paper.id,quantity:60,acceptedQuantity:60}]));
  state=await s.bootstrap();
  const order=state.orders.find((o:any)=>o.id===po.id);
  assert.equal(order.status,'received');
@@ -102,7 +102,7 @@ test('lines that chose different suppliers cannot share a PO, and a failed line 
  const paper=await s.act('order',buyer,{sessionId:sessions.paper.id}),toner=await s.act('order',buyer,{sessionIds:[sessions.toner.id]});
  assert.deepEqual([paper.supplierId,paper.productId,toner.supplierId,toner.productId],['sup-anphat','pro-paper','sup-minhchau','pro-toner']);
  // A one-line PO still takes the flat receipt and the one-line evaluation formula.
- const receipt=await s.act('receipt',warehouse,{orderId:toner.id,quantity:8,acceptedQuantity:7,receivedAt:new Date().toISOString(),idempotencyKey:'flat-toner'});
+ const receipt=await s.act('receipt',receiver,{orderId:toner.id,quantity:8,acceptedQuantity:7,receivedAt:new Date().toISOString(),idempotencyKey:'flat-toner'});
  assert.deepEqual([receipt.quantity,receipt.acceptedQuantity,receipt.productId],[8,7,'pro-toner']);
  const evaluation=await s.act('evaluation',buyer,{orderId:toner.id,qualityScore:90,serviceScore:80});
  assert.equal(evaluation.acceptanceScore,7/8*100);assert.equal(evaluation.productId,'pro-toner');

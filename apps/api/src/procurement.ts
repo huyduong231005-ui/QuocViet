@@ -35,6 +35,15 @@ export class Procurement {
  constructor(public db:Database,public demo=true,private clock:()=>Date=()=>new Date()){}
  private today(){return businessDate(this.clock())}
  async initialize(){await this.db.transaction(r=>seed(r,this.demo))}
+ /** Reading a draft never writes a quotation; only valid open RFQ invitations may be extracted. */
+ async extractionContext(rfqId:unknown,supplierId:unknown){
+  requireThat(typeof rfqId==='string'&&rfqId.length>0&&typeof supplierId==='string'&&supplierId.length>0,'Chọn RFQ và nhà cung cấp');
+  return this.db.transaction(async repo=>{
+   const rfq=await need(repo,'rfqs',rfqId as string),supplier=await need(repo,'suppliers',supplierId as string);
+   requireThat(rfq.status==='open','RFQ đã đóng; không thể trích xuất báo giá mới');
+   requireThat(rfq.supplierIds.includes(supplier.id)&&supplier.active!==false,'Nhà cung cấp phải đang hoạt động và được mời trong RFQ');
+  },{readOnly:true});
+ }
  /** Paged, filtered reads of a document list, including documents no longer in the workspace. */
  async documents(kind:string,query:unknown){
   requireThat((DOCUMENT_KINDS as readonly string[]).includes(kind),'Danh sách không tồn tại',404);const q=parse(documentQuerySchema,query,true);
@@ -61,7 +70,7 @@ export class Procurement {
   data.criteria=DEFAULT_CRITERIA;data.demoMode=this.demo;data.mailEnabled=!!this.mailer;data.businessDate=this.today();if(since)data.workspaceSince=since;return data;
  },{readOnly:true,isolation:'REPEATABLE READ'})}
  async act(op:string,actor:Actor,body:any={},id?:string):Promise<any>{
-  const roles:Record<string,string[]>={request:['buyer','manager'],decide:['manager'],requestApprove:['manager'],receipt:['warehouse'],evaluation:['buyer']};human(actor,roles[op]||['buyer']);
+  const roles:Record<string,string[]>={request:['buyer','manager'],decide:['manager'],requestApprove:['manager'],receipt:['buyer'],evaluation:['buyer']};human(actor,roles[op]||['buyer']);
   let done:any;
   try {done=await this.db.transaction(async repo=>{
    repo.setActor(actor);

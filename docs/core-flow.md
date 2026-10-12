@@ -13,7 +13,7 @@ flowchart LR
   F --> E
   E -->|CR đạt| G{Quản lý duyệt lựa chọn}
   G -->|Duyệt phiên còn hiệu lực| H[Tạo PO từ snapshot]
-  H --> I[Thủ kho nhận từng đợt]
+  H --> I[Mua hàng và kho nhận từng đợt]
   I --> J[Cộng số lượng đạt vào tồn kho]
   J --> K[Nhận đủ và đánh giá NCC]
   K --> E

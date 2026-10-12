@@ -5,11 +5,13 @@ import {Procurement} from './procurement';
 import {DomainError,requireThat} from './errors';
 import {buildExcel,buildPdf} from './reports';
 import {buildSampleCatalog,parseCatalog} from './catalog-import';
-export class Runtime {constructor(public agentEnabled:boolean,public agentKey:string){} }
+export class Runtime {
+ constructor(public agentEnabled:boolean,public agentKey:string,public extractionEnabled=agentEnabled,public agentUrl=process.env.AGENT_URL||'http://127.0.0.1:8001'){}
+}
 @Controller()
 export class ApiController {
  constructor(@Inject(Procurement)private service:Procurement,@Inject(Auth)private auth:Auth,@Inject(Runtime)private runtime:Runtime,@Inject(Accounts)private accounts:Accounts){}
- @Get('health')health(){return {status:'ok',service:'procureiq-api',agentEnabled:this.runtime.agentEnabled,demoMode:this.service.demo}}
+ @Get('health')health(){return {status:'ok',service:'procureiq-api',agentEnabled:this.runtime.agentEnabled,extractionEnabled:this.runtime.extractionEnabled,demoMode:this.service.demo}}
  @Post('auth/login')login(@Body()body:any){return this.auth.login(body.email,body.password)}
  @Post('auth/register')register(@Body()b:any){return this.accounts.register(b)}
  @Post('auth/password')ownPassword(@Req()r:any,@Body()b:any){return this.accounts.changeOwnPassword(r.actor,b)}
@@ -17,7 +19,24 @@ export class ApiController {
  @Post('accounts')accountCreate(@Req()r:any,@Body()b:any){return this.accounts.create(r.actor,b)}
  @Patch('accounts/:id')accountUpdate(@Req()r:any,@Body()b:any,@Param('id')id:string){return this.accounts.update(r.actor,id,b)}
  @Post('accounts/:id/password')accountPassword(@Req()r:any,@Body()b:any,@Param('id')id:string){return this.accounts.resetPassword(r.actor,id,b)}
- @Get('bootstrap')async bootstrap(){return {...await this.service.bootstrap(false),agentEnabled:this.runtime.agentEnabled}}
+ @Get('bootstrap')async bootstrap(){return {...await this.service.bootstrap(false),agentEnabled:this.runtime.agentEnabled,extractionEnabled:this.runtime.extractionEnabled}}
+ @Get('agent/status')async agentStatus(){
+  const status={enabled:this.runtime.agentEnabled,extractionEnabled:this.runtime.extractionEnabled,reachable:false,llmConfigured:false,ocrAvailable:false,model:null as string|null,provider:null as string|null,keyCount:0};
+  if(!status.enabled&&!status.extractionEnabled)return status;
+  try{
+   const response=await fetch(this.runtime.agentUrl+'/health',{signal:AbortSignal.timeout(3000)});
+   const health:any=await response.json();
+   if(!response.ok||health.service!=='procureiq-agent'||health.status!=='ok')return status;
+   return {...status,reachable:true,llmConfigured:health.llmConfigured===true,ocrAvailable:health.ocrAvailable===true,model:typeof health.model==='string'?health.model.slice(0,100):null,provider:health.provider==='gemini'?'gemini':health.provider==='openai'?'openai':null,keyCount:Number.isInteger(health.keyCount)&&health.keyCount>=0&&health.keyCount<=20?health.keyCount:0};
+  }catch{return status}
+ }
+ @Post('agent/config/gemini')async configureGemini(@Req()r:any,@Body()b:any){
+  requireThat(r.actor.role==='admin','Chỉ quản trị viên được cấu hình Gemini',403);
+  requireThat(this.runtime.extractionEnabled,'Chức năng trích xuất báo giá chưa được bật',403);
+  requireThat(Array.isArray(b?.keys)&&b.keys.length>=1&&b.keys.length<=20&&b.keys.every((key:any)=>typeof key==='string'&&key.length>=1&&key.length<=512),'Nhập từ 1 đến 20 Gemini API key');
+  const result=await this.agent('/config/gemini',{keys:b.keys,model:'gemini-3.5-flash-lite'});
+  return {configured:result.configured===true,provider:'gemini',model:result.model,keyCount:result.keyCount};
+ }
  @Get('audit')audit(@Query()q:any){return this.service.auditLog(q)}
  @Get('list/:kind')documents(@Param('kind')kind:string,@Query()q:any){return this.service.documents(kind,q)}
  @Get('inventory/movements')movements(@Query()q:any){return this.service.stockMovements(q)}
@@ -44,7 +63,8 @@ export class ApiController {
  @Post('quotations')quotation(@Req()r:any,@Body()b:any){return this.service.act('quotation',r.actor,b)}
  @Patch('quotations/:id')quotationUpdate(@Req()r:any,@Body()b:any,@Param('id')id:string){return this.service.act('quotationUpdate',r.actor,b,id)}
  @Post('quotations/extract')async extract(@Req()r:any,@Body()b:any){
-  requireThat(['buyer','admin'].includes(r.actor.role),'Bạn không có quyền trích xuất báo giá',403);requireThat(this.runtime.agentEnabled,'Trích xuất AI được tích hợp trong giai đoạn agent sau',403);
+  requireThat(['buyer','admin'].includes(r.actor.role),'Bạn không có quyền trích xuất báo giá',403);requireThat(this.runtime.extractionEnabled,'Chức năng trích xuất báo giá chưa được bật',403);
+  await this.service.extractionContext(b.rfqId,b.supplierId);
   const result=await this.agent('/extract',{text:b.text,fileBase64:b.fileBase64,mimeType:b.mimeType});return {...result,quotation:{...result.quotation,rfqId:b.rfqId,supplierId:b.supplierId}};
  }
  @Post('ahp/compute')ahp(@Req()r:any,@Body()b:any){return this.service.act('ahp',r.actor,b)}
@@ -59,8 +79,8 @@ export class ApiController {
  @Post('agent/runs/:id/resume')async resume(@Req()r:any,@Param('id')id:string){requireThat(['admin','buyer'].includes(r.actor.role),'Bạn không có quyền tiếp tục agent',403);requireThat(this.runtime.agentEnabled,'Agent dành cho giai đoạn triển khai sau',403);await this.agent('/runs/resume',{runId:id});return (await this.service.tool('get_run',{runId:id})).run}
  @Post('agent/tools/:tool')tool(@Param('tool')name:string,@Body()b:any){return this.service.tool(name,b)}
  private async agent(path:string,body:any){
-  try{const response=await fetch((process.env.AGENT_URL||'http://127.0.0.1:8001')+path,{method:'POST',headers:{'Content-Type':'application/json','X-Agent-Key':this.runtime.agentKey},body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});const data:any=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:data.message||'Agent service trả lỗi');return data}
-  catch(error:any){throw new DomainError(`Không kết nối được agent: ${error.message}`,503)}
+  try{const response=await fetch(this.runtime.agentUrl+path,{method:'POST',headers:{'Content-Type':'application/json','X-Agent-Key':this.runtime.agentKey},body:JSON.stringify(body),signal:AbortSignal.timeout(path==='/extract'?75000:60000)});const data:any=await response.json();if(response.status===401||response.status===403)throw new DomainError('Khóa kết nối Agent không khớp hoặc chức năng bị tắt. Kiểm tra cấu hình rồi khởi động lại API và Agent.',503);if(!response.ok)throw new DomainError(typeof data.detail==='string'?data.detail:data.message||'Agent service trả lỗi',response.status>=500?503:response.status);return data}
+  catch(error:any){if(error instanceof DomainError)throw error;throw new DomainError('Không kết nối được dịch vụ Agent. Kiểm tra dịch vụ Python rồi thử lại.',503)}
  }
  private async afterDecision(approval:any){if(approval.runId&&approval.status==='approved'&&this.runtime.agentEnabled){try{await this.agent('/runs/resume',{runId:approval.runId})}catch(error:any){return {...approval,resumeError:error.message}}}return approval}
 }

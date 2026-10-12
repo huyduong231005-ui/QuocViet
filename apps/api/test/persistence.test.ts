@@ -25,7 +25,7 @@ test('disk database retains a request and approval across reopening', async () =
     const after = await service.bootstrap();
     assert.equal(after.requests.find((item:any) => item.id === request.id)?.reason, 'Persistence test');
     assert.equal(after.approvals.find((item:any) => item.id === approval.id)?.status, 'pending');
-    assert.equal(await db.transaction(async repository => (await repository.list('users')).length), 5);
+    assert.equal(await db.transaction(async repository => (await repository.list('users')).length), 4);
   } finally {
     if (db) await db.close();
     await rm(directory, {recursive:true,force:true});

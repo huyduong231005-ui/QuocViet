@@ -14,6 +14,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import httpx
 from pypdf import PdfReader
 
 FIELDS = ("unitPrice", "quantity", "deliveryDays", "qualityScore", "vat", "currency", "validUntil")
@@ -161,25 +162,44 @@ def parse_text(text: str) -> dict[str, Any]:
 def extract_quotation(text: str | None = None, file_base64: str | None = None, mime_type: str | None = None, llm=None) -> dict[str, Any]:
     document, method, warnings = read_document(text, file_base64, mime_type)
     draft = parse_text(document)
+    evidence_by_field: dict[str, str] = {}
+    field_sources = {field: "parser" for field in draft}
+    llm_status = "not_configured"
     tokens = 0
     if llm is not None and document.strip():
         try:
             candidates, tokens = llm.extract(document)
+            llm_status = "used"
             for field, item in candidates.items():
                 if field not in FIELDS or field in draft or not isinstance(item, dict):
                     continue
                 evidence = item.get("evidence", "")
                 # Only accept independently parsed, verbatim grounded evidence.
-                if evidence and evidence in document:
+                if isinstance(evidence, str) and evidence and evidence in document:
                     grounded = parse_text(evidence)
                     if field in grounded and grounded[field] == item.get("value"):
                         draft[field] = grounded[field]
+                        evidence_by_field[field] = evidence
+                        field_sources[field] = "model"
+                    else:
+                        warnings.append(f"Unverified model field ignored: {field}")
+                else:
+                    warnings.append(f"Unverified model field ignored: {field}")
             method += "+llm-grounded"
-        except Exception:
-            warnings.append("Optional LLM extraction failed; deterministic extraction remains available.")
+        except Exception as error:
+            if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429:
+                llm_status = "rate_limited"
+                warnings.append("Model API rate limit reached; deterministic extraction remains available.")
+            else:
+                llm_status = "failed"
+                warnings.append("Optional LLM extraction failed; deterministic extraction remains available.")
     for field in FIELDS:
         if field not in draft:
             warnings.append(f"Missing or invalid field: {field}")
     if not document.strip():
         warnings.append("No readable quotation text found.")
-    return {"quotation": draft, "confidence": round(len(draft) / len(FIELDS), 3), "warnings": warnings, "method": method, "tokensUsed": tokens}
+    coverage = round(len(draft) / len(FIELDS), 3)
+    return {"quotation": draft, "confidence": coverage, "coverage": coverage,
+            "missingFields": [field for field in FIELDS if field not in draft],
+            "warnings": warnings, "method": method, "tokensUsed": tokens,
+            "llmStatus": llm_status, "evidence": evidence_by_field, "fieldSources": field_sources}

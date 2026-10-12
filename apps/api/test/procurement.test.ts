@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Database } from '../src/db';
 import { Procurement } from '../src/procurement';
 import { Auth } from '../src/auth';
-const buyer={id:'u-buyer',name:'Buyer',role:'buyer'},manager={id:'u-manager',name:'Manager',role:'manager'},warehouse={id:'u-warehouse',name:'Warehouse',role:'warehouse'},auditor={id:'u-auditor',name:'Auditor',role:'auditor'};
+const buyer={id:'u-buyer',name:'Buyer',role:'buyer'},manager={id:'u-manager',name:'Manager',role:'manager'},receiver=buyer,auditor={id:'u-auditor',name:'Auditor',role:'auditor'};
 const matrix=[[1,2,4,4],[.5,1,2,2],[.25,.5,1,1],[.25,.5,1,1]];
 test('production rejects a previously seeded demo database',async()=>{const db=await Database.open(':memory:');try{await new Procurement(db,true).initialize();await assert.rejects(()=>new Procurement(db,false).initialize(),/CSDL demo/)}finally{await db.close()}});
 test('RFQ references block supplier deletion and gate2 revalidates expired snapshot',async()=>{
@@ -45,12 +45,12 @@ test('procurement transaction enforces approvals, immutable quotation revisions 
   const current=await s.act('ahp',buyer,{rfqId:rfq.id,matrix,iterations:100});gate=await s.act('approval2',buyer,{},current.id);
   await s.act('decide',manager,{approved:true},gate.id);
   const po=await s.act('order',buyer,{sessionId:current.id});assert.equal((await s.act('order',buyer,{sessionId:current.id})).id,po.id);
-  await assert.rejects(()=>s.act('receipt',buyer,{orderId:po.id,quantity:40,acceptedQuantity:40,receivedAt:new Date().toISOString(),idempotencyKey:'r-1'}),/quyền/);
+  for(const actor of [manager,auditor])await assert.rejects(()=>s.act('receipt',actor,{orderId:po.id,quantity:40,acceptedQuantity:40,receivedAt:new Date().toISOString(),idempotencyKey:'r-1'}),/quyền/);
   const body={orderId:po.id,quantity:40,acceptedQuantity:38,receivedAt:new Date().toISOString(),idempotencyKey:'r-1'};
-  const receipt=await s.act('receipt',warehouse,body);assert.equal((await s.act('receipt',warehouse,body)).id,receipt.id);
-  await assert.rejects(()=>s.act('receipt',warehouse,{...body,quantity:41}),/idempotency/);
-  await assert.rejects(()=>s.act('receipt',warehouse,{...body,quantity:61,acceptedQuantity:61,idempotencyKey:'r-2'}),/vượt/);
-  await s.act('receipt',warehouse,{...body,quantity:60,acceptedQuantity:60,idempotencyKey:'r-2'});
+  const receipt=await s.act('receipt',receiver,body);assert.equal((await s.act('receipt',receiver,body)).id,receipt.id);
+  await assert.rejects(()=>s.act('receipt',receiver,{...body,quantity:41}),/idempotency/);
+  await assert.rejects(()=>s.act('receipt',receiver,{...body,quantity:61,acceptedQuantity:61,idempotencyKey:'r-2'}),/vượt/);
+  await s.act('receipt',receiver,{...body,quantity:60,acceptedQuantity:60,idempotencyKey:'r-2'});
   const evaluation=await s.act('evaluation',buyer,{orderId:po.id,qualityScore:90,serviceScore:95});assert.ok(evaluation.overallScore>0);
   b=await s.bootstrap();assert.equal(b.products.find((p:any)=>p.id==='pro-paper').stock,218);assert.equal(b.orders.find((o:any)=>o.id===po.id).status,'received');
  }finally{await db.close()}
@@ -170,9 +170,9 @@ test('a receipt retry is the same request when only the timestamp offset is writ
   const po=await s.act('order',buyer,{sessionId:session.id});
   const now=new Date(),utc=now.toISOString(),vietnam=new Date(now.getTime()+7*3600000).toISOString().replace('Z','+07:00');
   const body={orderId:po.id,quantity:4,acceptedQuantity:4,idempotencyKey:'offset-retry'};
-  const receipt=await s.act('receipt',warehouse,{...body,receivedAt:utc});
-  assert.equal((await s.act('receipt',warehouse,{...body,receivedAt:vietnam})).id,receipt.id);
-  await assert.rejects(()=>s.act('receipt',warehouse,{...body,receivedAt:new Date(now.getTime()-1000).toISOString()}),/idempotency/);
+  const receipt=await s.act('receipt',receiver,{...body,receivedAt:utc});
+  assert.equal((await s.act('receipt',receiver,{...body,receivedAt:vietnam})).id,receipt.id);
+  await assert.rejects(()=>s.act('receipt',receiver,{...body,receivedAt:new Date(now.getTime()-1000).toISOString()}),/idempotency/);
   assert.equal((await s.bootstrap()).products.find((p:any)=>p.id==='pro-paper').stock,124);
  }finally{await db.close()}
 });

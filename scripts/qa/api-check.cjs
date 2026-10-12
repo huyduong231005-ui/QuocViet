@@ -38,7 +38,7 @@ const day = offset => new Date(Date.now() + offset * 86400000).toISOString().sli
 
   // --- accounts
   const tokens = {admin};
-  for (const [role, name] of [['buyer', 'Nhân viên thu mua'], ['manager', 'Quản lý'], ['warehouse', 'Thủ kho'], ['auditor', 'Kiểm toán']]) {
+  for (const [role, name] of [['buyer', 'Nhân viên mua hàng & kho'], ['manager', 'Quản lý'], ['auditor', 'Kiểm toán']]) {
     const created = await call('/accounts', 'POST', {name, email: `${role}@qa.local`, role, password: 'MatKhau2026'}, admin);
     check(`create ${role} account`, created.status === 201 && created.data.passwordHash === undefined, JSON.stringify(created.data).slice(0, 120));
     tokens[role] = (await call('/auth/login', 'POST', {email: `${role}@qa.local`, password: 'MatKhau2026'})).data.token;
@@ -47,7 +47,7 @@ const day = offset => new Date(Date.now() + offset * 86400000).toISOString().sli
   expectError('duplicate account email', await call('/accounts', 'POST', {name: 'Trùng', email: 'BUYER@qa.local', role: 'buyer', password: 'MatKhau2026'}, admin), 409);
   expectError('weak password', await call('/accounts', 'POST', {name: 'Yếu', email: 'yeu@qa.local', role: 'buyer', password: '12345'}, admin), 400);
   expectError('non-admin cannot list accounts', await call('/accounts', 'GET', undefined, tokens.manager), 403);
-  const {buyer, manager, warehouse, auditor} = tokens;
+  const {buyer, manager, auditor} = tokens;
 
   // --- catalog
   const template = await call('/catalog/template', 'GET', undefined, buyer);
@@ -71,10 +71,10 @@ const day = offset => new Date(Date.now() + offset * 86400000).toISOString().sli
   const unused = await call('/products', 'POST', {sku: 'QA-2', name: 'Chưa dùng', unit: 'cái', minStock: 0, stock: 0}, buyer);
   check('unused zero-stock product can be deleted', (await call(`/products/${unused.data.id}`, 'DELETE', undefined, buyer)).status === 200);
   expectError('negative price', await call('/prices', 'POST', {productId: product('VP-A4-80').id, supplierId: s1.id, unitPrice: -1, deliveryDays: 1, qualityScore: 90}, buyer), 400);
-  expectError('warehouse cannot write catalog', await call('/suppliers', 'POST', {name: 'X', email: 'x@example.test'}, warehouse), 403);
+  expectError('auditor cannot write catalog', await call('/suppliers', 'POST', {name: 'X', email: 'x@example.test'}, auditor), 403);
 
   // --- request and gate 1
-  expectError('warehouse cannot request', await call('/requests', 'POST', {productId: product('VP-A4-80').id, quantity: 1, reason: 'x'}, warehouse), 403);
+  expectError('auditor cannot request', await call('/requests', 'POST', {productId: product('VP-A4-80').id, quantity: 1, reason: 'x'}, auditor), 403);
   expectError('quantity must be a number', await call('/requests', 'POST', {productId: product('VP-A4-80').id, quantity: '10', reason: 'x'}, buyer), 400);
   expectError('unknown product', await call('/requests', 'POST', {productId: 'khong-co', quantity: 1, reason: 'x'}, buyer), 404);
   const rejected = (await call('/requests', 'POST', {productId: product('VP-TP-48').id, quantity: 5, reason: 'Sẽ bị từ chối'}, buyer)).data;
@@ -137,21 +137,21 @@ const day = offset => new Date(Date.now() + offset * 86400000).toISOString().sli
   check('send PO queues one message', (await call(`/orders/${po.id}/send`, 'POST', {}, buyer)).status === 201 && (await call(`/orders/${po.id}/send`, 'POST', {}, buyer)).status === 201);
   const now = () => new Date().toISOString(), line = po.items[0].id;
   const receipt = (key, quantity, accepted, extra = {}) => ({orderId: po.id, receivedAt: now(), idempotencyKey: key, notes: '', items: [{orderLineId: line, quantity, acceptedQuantity: accepted}], ...extra});
-  expectError('buyer cannot receive', await call('/receipts', 'POST', receipt('qa-0', 1, 1), buyer), 403);
-  expectError('receiving more than ordered', await call('/receipts', 'POST', receipt('qa-0', 101, 101), warehouse), 400);
-  expectError('accepted above delivered', await call('/receipts', 'POST', receipt('qa-0', 10, 11), warehouse), 400);
-  expectError('receipt dated in the future', await call('/receipts', 'POST', receipt('qa-0', 10, 10, {receivedAt: new Date(Date.now() + 3600000).toISOString()}), warehouse), 400);
-  expectError('receipt for a line of another PO', await call('/receipts', 'POST', {...receipt('qa-0', 1, 1), items: [{orderLineId: 'khong-co', quantity: 1, acceptedQuantity: 1}]}, warehouse), 400);
+  expectError('manager cannot receive', await call('/receipts', 'POST', receipt('qa-0', 1, 1), manager), 403);
+  expectError('receiving more than ordered', await call('/receipts', 'POST', receipt('qa-0', 101, 101), buyer), 400);
+  expectError('accepted above delivered', await call('/receipts', 'POST', receipt('qa-0', 10, 11), buyer), 400);
+  expectError('receipt dated in the future', await call('/receipts', 'POST', receipt('qa-0', 10, 10, {receivedAt: new Date(Date.now() + 3600000).toISOString()}), buyer), 400);
+  expectError('receipt for a line of another PO', await call('/receipts', 'POST', {...receipt('qa-0', 1, 1), items: [{orderLineId: 'khong-co', quantity: 1, acceptedQuantity: 1}]}, buyer), 400);
   const first = receipt('qa-1', 40, 38, {notes: 'Đợt 1'});
-  const saved = await call('/receipts', 'POST', first, warehouse);
+  const saved = await call('/receipts', 'POST', first, buyer);
   check('partial receipt', saved.status === 201, JSON.stringify(saved.data).slice(0, 120));
-  check('retry with the same key returns the same receipt', (await call('/receipts', 'POST', first, warehouse)).data.id === saved.data.id);
-  expectError('same key, different content', await call('/receipts', 'POST', {...first, items: [{orderLineId: line, quantity: 41, acceptedQuantity: 38}]}, warehouse), 409);
+  check('retry with the same key returns the same receipt', (await call('/receipts', 'POST', first, buyer)).data.id === saved.data.id);
+  expectError('same key, different content', await call('/receipts', 'POST', {...first, items: [{orderLineId: line, quantity: 41, acceptedQuantity: 38}]}, buyer), 409);
   expectError('evaluation before the PO is complete', await call('/evaluations', 'POST', {orderId: po.id, qualityScore: 90, serviceScore: 90}, buyer), 400);
-  expectError('over-delivery on the second batch', await call('/receipts', 'POST', receipt('qa-2', 61, 61), warehouse), 400);
-  await call('/receipts', 'POST', receipt('qa-2', 60, 60, {notes: 'Đợt 2'}), warehouse);
-  expectError('receiving after the PO is complete', await call('/receipts', 'POST', receipt('qa-3', 1, 1), warehouse), 400);
-  expectError('warehouse cannot evaluate', await call('/evaluations', 'POST', {orderId: po.id, qualityScore: 90, serviceScore: 90}, warehouse), 403);
+  expectError('over-delivery on the second batch', await call('/receipts', 'POST', receipt('qa-2', 61, 61), buyer), 400);
+  await call('/receipts', 'POST', receipt('qa-2', 60, 60, {notes: 'Đợt 2'}), buyer);
+  expectError('receiving after the PO is complete', await call('/receipts', 'POST', receipt('qa-3', 1, 1), buyer), 400);
+  expectError('auditor cannot evaluate', await call('/evaluations', 'POST', {orderId: po.id, qualityScore: 90, serviceScore: 90}, auditor), 403);
   expectError('score out of range', await call('/evaluations', 'POST', {orderId: po.id, qualityScore: 101, serviceScore: 90}, buyer), 400);
   const evaluation = await call('/evaluations', 'POST', {orderId: po.id, qualityScore: 90, serviceScore: 90, notes: 'Tốt'}, buyer);
   check('evaluation scores', evaluation.status === 201 && Math.abs(evaluation.data.acceptanceScore - 98) < 1e-9 && evaluation.data.deliveryScore === 100, JSON.stringify(evaluation.data).slice(0, 160));
@@ -173,10 +173,10 @@ const day = offset => new Date(Date.now() + offset * 86400000).toISOString().sli
   }
   const grouped = await call('/orders', 'POST', {sessionIds: sessions}, buyer);
   check('grouped PO has two lines and an exact total', grouped.status === 201 && grouped.data.items.length === 2 && grouped.data.total === grouped.data.items.reduce((sum, l) => sum + l.total, 0), JSON.stringify(grouped.data).slice(0, 120));
-  expectError('flat receipt on a multi-line PO', await call('/receipts', 'POST', {orderId: grouped.data.id, quantity: 1, acceptedQuantity: 1, receivedAt: now(), idempotencyKey: 'qa-m0'}, warehouse), 400);
+  expectError('flat receipt on a multi-line PO', await call('/receipts', 'POST', {orderId: grouped.data.id, quantity: 1, acceptedQuantity: 1, receivedAt: now(), idempotencyKey: 'qa-m0'}, buyer), 400);
   const [l1, l2] = grouped.data.items;
-  await call('/receipts', 'POST', {orderId: grouped.data.id, receivedAt: now(), idempotencyKey: 'qa-m1', notes: '', items: [{orderLineId: l1.id, quantity: 10, acceptedQuantity: 9}]}, warehouse);
-  await call('/receipts', 'POST', {orderId: grouped.data.id, receivedAt: now(), idempotencyKey: 'qa-m2', notes: '', items: [{orderLineId: l2.id, quantity: 24, acceptedQuantity: 24}]}, warehouse);
+  await call('/receipts', 'POST', {orderId: grouped.data.id, receivedAt: now(), idempotencyKey: 'qa-m1', notes: '', items: [{orderLineId: l1.id, quantity: 10, acceptedQuantity: 9}]}, buyer);
+  await call('/receipts', 'POST', {orderId: grouped.data.id, receivedAt: now(), idempotencyKey: 'qa-m2', notes: '', items: [{orderLineId: l2.id, quantity: 24, acceptedQuantity: 24}]}, buyer);
 
   // --- reads: lists, workspace, ledger, dashboard, reports
   b = (await call('/bootstrap', 'GET', undefined, auditor)).data;

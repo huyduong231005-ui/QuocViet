@@ -1,5 +1,6 @@
 ﻿$ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+& (Join-Path $PSScriptRoot 'stop-agent.ps1')
 $pidFile = Join-Path $projectRoot '.data\api.pid'
 if (-not (Test-Path -LiteralPath $pidFile)) { Write-Host 'Không có API do start.ps1 quản lý.'; exit 0 }
 $serverId = [int](Get-Content -LiteralPath $pidFile)
