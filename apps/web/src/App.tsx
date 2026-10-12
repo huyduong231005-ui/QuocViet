@@ -14,9 +14,19 @@ const InventoryPage=lazy(()=>import('./pages/Inventory').then(m=>({default:m.Inv
 const AgentPage=lazy(()=>import('./pages/Agent').then(m=>({default:m.AgentPage})));
 const AuditPage=lazy(()=>import('./pages/Audit').then(m=>({default:m.AuditPage})));
 const AccountsPage=lazy(()=>import('./pages/Accounts').then(m=>({default:m.AccountsPage})));
-// The four screens of the "flow" group are listed in the order a purchase goes through them.
-const groups=[{key:'top',label:''},{key:'flow',label:'Quy trình mua'},{key:'data',label:'Dữ liệu'},{key:'admin',label:'Quản trị'}];
-const navigation=[{key:'dashboard',group:'top',label:'Tổng quan',icon:<BarChartOutlined aria-hidden/>},{key:'procurement',group:'flow',label:'Yêu cầu và báo giá',icon:<FileTextOutlined aria-hidden/>},{key:'ahp',group:'flow',label:'So sánh AHP',icon:<ApartmentOutlined aria-hidden/>},{key:'approvals',group:'flow',label:'Phê duyệt',icon:<CheckSquareOutlined aria-hidden/>},{key:'orders',group:'flow',label:'Đơn mua và nhập kho',icon:<ShoppingCartOutlined aria-hidden/>},{key:'catalog',group:'data',label:'Danh mục',icon:<AppstoreOutlined aria-hidden/>},{key:'inventory',group:'data',label:'Tồn kho và dự báo',icon:<StockOutlined aria-hidden/>},{key:'audit',group:'data',label:'Nhật ký và báo cáo',icon:<AuditOutlined aria-hidden/>},{key:'agent',group:'data',label:'AI Agent',icon:<RobotOutlined aria-hidden/>},{key:'accounts',group:'admin',label:'Tài khoản',icon:<TeamOutlined aria-hidden/>,adminOnly:true}];
+const groups=[{key:'top',label:''},{key:'core',label:'Kiểm toán & Kế toán'},{key:'flow',label:'Quy trình mua hàng'},{key:'data',label:'Kho & Danh mục'},{key:'admin',label:'Quản trị hệ thống'}];
+const navigation=[
+  {key:'dashboard',group:'top',label:'Tổng quan hệ thống',icon:<BarChartOutlined aria-hidden/>},
+  {key:'audit',group:'core',label:'Kiểm toán & Kế toán',icon:<AuditOutlined aria-hidden/>},
+  {key:'procurement',group:'flow',label:'Yêu cầu và báo giá',icon:<FileTextOutlined aria-hidden/>},
+  {key:'ahp',group:'flow',label:'So sánh AHP',icon:<ApartmentOutlined aria-hidden/>},
+  {key:'approvals',group:'flow',label:'Phê duyệt',icon:<CheckSquareOutlined aria-hidden/>},
+  {key:'orders',group:'flow',label:'Đơn mua & Nhận hàng',icon:<ShoppingCartOutlined aria-hidden/>},
+  {key:'catalog',group:'data',label:'Danh mục vật tư',icon:<AppstoreOutlined aria-hidden/>},
+  {key:'inventory',group:'data',label:'Kế toán kho & Tồn trữ',icon:<StockOutlined aria-hidden/>},
+  {key:'agent',group:'data',label:'AI Agent Copilot',icon:<RobotOutlined aria-hidden/>},
+  {key:'accounts',group:'admin',label:'Tài khoản',icon:<TeamOutlined aria-hidden/>,adminOnly:true}
+];
 const Brand=({named}:{named:boolean})=><><span className="brand-mark" aria-hidden="true">P</span>{named&&<span className="brand-name"><strong>ProcureIQ</strong><small>Quốc Việt</small></span>}</>;
 function Login(){const {login,request}=useWorkspace();const {message}=AntApp.useApp();const [loading,setLoading]=useState(false);const [error,setError]=useState('');const [demo,setDemo]=useState(false);const [registering,setRegistering]=useState(false);const [form]=Form.useForm<{name?:string;email:string;password:string}>();
  // The server says whether demo accounts exist; a real installation shows an empty form and no shared password.

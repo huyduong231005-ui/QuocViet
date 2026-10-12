@@ -15,10 +15,11 @@ import {
   Col, 
   Tooltip, 
   Progress, 
-  message,
-  Dropdown,
-  Divider,
-  Radio
+  message, 
+  Dropdown, 
+  Divider, 
+  Radio, 
+  Badge 
 } from 'antd';
 import type { MenuProps } from 'antd';
 import { 
@@ -27,24 +28,30 @@ import {
   RobotOutlined, 
   UserOutlined, 
   WarningOutlined, 
-  SafetyCertificateOutlined,
-  InboxOutlined,
-  EyeOutlined,
-  CopyOutlined,
-  CheckCircleOutlined,
-  DownOutlined,
-  LineChartOutlined,
-  ShoppingCartOutlined,
-  ApartmentOutlined,
-  TagsOutlined,
-  FileTextOutlined,
-  KeyOutlined
+  SafetyCertificateOutlined, 
+  InboxOutlined, 
+  EyeOutlined, 
+  CopyOutlined, 
+  CheckCircleOutlined, 
+  CloseCircleOutlined,
+  DownOutlined, 
+  LineChartOutlined, 
+  ShoppingCartOutlined, 
+  ApartmentOutlined, 
+  TagsOutlined, 
+  FileTextOutlined, 
+  KeyOutlined,
+  DollarOutlined,
+  AccountBookOutlined,
+  AuditOutlined,
+  CheckOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons';
-import { AreaChart, Area, XAxis, YAxis, Tooltip as ChartTooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip as ChartTooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar } from 'recharts';
 import { useWorkspace } from '../api';
-import { date, shortId } from '../components';
+import { date, shortId, money, number } from '../components';
 import { PagedTable } from '../PagedTable';
-import type { Audit, Movement } from '../types';
+import type { Audit, Movement, Order } from '../types';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -67,7 +74,7 @@ const entityMeta: Record<string, { label: string; icon: React.ReactNode; color: 
   agent_run: { label: 'Tiến trình AI Agent', icon: <RobotOutlined />, color: 'purple' }
 };
 
-/** Từ điển chuẩn hóa toàn bộ hành động (con người lẫn AI Agent) sang tiếng Việt chuyên nghiệp */
+/** Từ điển chuẩn hóa toàn bộ hành động sang tiếng Việt chuyên nghiệp */
 const actionDictionary: Record<string, { label: string; color: string; badge: string; isAgent?: boolean; isSensitive?: boolean }> = {
   // Hành động do AI Agent thực hiện
   'tool:finalize': { label: 'Chốt & Lập đơn mua (AI)', color: '#722ed1', badge: 'AI Quyết định', isAgent: true },
@@ -84,7 +91,7 @@ const actionDictionary: Record<string, { label: string; color: string; badge: st
   'decide': { label: 'Phê duyệt Kết quả & Lập PO (Gate 2)', color: '#52c41a', badge: 'Kiểm soát Cổng 2' },
   'approval2': { label: 'Trình duyệt Phương án AHP', color: '#13c2c2', badge: 'Trình phương án' },
 
-  // Nghiệp vụ Mua hàng & Kho
+  // Nghiệp vụ Mua hàng, Kế toán & Kho
   'request': { label: 'Đề xuất Nhu cầu Mua sắm', color: '#1677ff', badge: 'Nhu cầu mới' },
   'rfq': { label: 'Phát hành Yêu cầu Báo giá (RFQ)', color: '#722ed1', badge: 'Gửi RFQ' },
   'quotation': { label: 'Ghi nhận Báo giá từ NCC', color: '#13c2c2', badge: 'Báo giá' },
@@ -114,32 +121,149 @@ export function AuditPage() {
   const [actorFilter, setActorFilter] = useState<'all' | 'agent' | 'user'>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [tab, setTab] = useState<'events' | 'movements'>('events');
+  const [tab, setTab] = useState<'events' | 'matching' | 'financial' | 'movements'>('events');
   const [movementKind, setMovementKind] = useState<string>();
   const [showChart, setShowChart] = useState<boolean>(true);
 
   if (!data) return null;
 
-  // Tính toán KPI Kiểm toán & Tuân thủ
+  // 1. Tính toán KPI Kiểm toán
   const totalApprovals = data.approvals.length;
   const selfApprovedCount = data.approvals.filter(
     a => a.decidedBy && a.requestId && data.requests.find(r => r.id === a.requestId)?.createdBy === a.decidedBy
   ).length;
   const agentRunCount = data.agentRuns.length;
-
-  // Tính điểm tuân thủ (Compliance Health Score)
   const complianceScore = Math.max(80, Math.min(100, Math.round(100 - selfApprovedCount * 10)));
 
-  // Dữ liệu mô phỏng xu hướng thời gian dựa trên các mốc thực tế của dữ liệu
-  const chartData = useMemo(() => {
-    return [
-      { date: '08/10', human: 3, agent: 1, total: 4 },
-      { date: '09/10', human: 5, agent: 2, total: 7 },
-      { date: '10/10', human: totalApprovals > 2 ? Math.floor(totalApprovals / 2) : 2, agent: 1, total: 4 },
-      { date: '11/10', human: 4, agent: Math.max(1, agentRunCount), total: 4 + agentRunCount },
-      { date: '12/10 (Nay)', human: totalApprovals, agent: agentRunCount * 3, total: totalApprovals + agentRunCount * 3 },
-    ];
-  }, [totalApprovals, agentRunCount]);
+  // 2. Tính toán Nghiệp vụ Kế toán: Đối chiếu 3 bên (3-Way Matching)
+  const matchingLines = useMemo(() => {
+    const list: Array<{
+      orderId: string;
+      orderCreatedAt: string;
+      supplierId: string;
+      supplierName: string;
+      lineId: string;
+      productName: string;
+      sku: string;
+      unit: string;
+      orderedQty: number;
+      unitPrice: number;
+      vat: number;
+      poAmount: number;
+      receivedQty: number;
+      acceptedQty: number;
+      payableAmount: number;
+      status: 'MATCHED' | 'PARTIAL' | 'DEFECT' | 'AWAITING';
+    }> = [];
+
+    for (const order of data.orders) {
+      const sup = data.suppliers.find(s => s.id === order.supplierId);
+      const supName = sup?.name || shortId(order.supplierId);
+
+      for (const line of order.items) {
+        const ordered = line.quantity;
+        const received = line.receivedQuantity || 0;
+        const accepted = line.acceptedQuantity || 0;
+        const price = line.unitPrice;
+        const lineVat = line.vat || 0;
+        const poAmt = line.total || (ordered * price * (1 + lineVat));
+        const payableAmt = accepted * price * (1 + lineVat);
+
+        let matchStatus: 'MATCHED' | 'PARTIAL' | 'DEFECT' | 'AWAITING' = 'AWAITING';
+        if (received === 0) {
+          matchStatus = 'AWAITING';
+        } else if (accepted === ordered && received === ordered) {
+          matchStatus = 'MATCHED';
+        } else if (accepted < received) {
+          matchStatus = 'DEFECT';
+        } else {
+          matchStatus = 'PARTIAL';
+        }
+
+        list.push({
+          orderId: order.id,
+          orderCreatedAt: order.createdAt,
+          supplierId: order.supplierId,
+          supplierName: supName,
+          lineId: line.id,
+          productName: line.productName,
+          sku: line.productSku,
+          unit: line.unit,
+          orderedQty: ordered,
+          unitPrice: price,
+          vat: lineVat,
+          poAmount: poAmt,
+          receivedQty: received,
+          acceptedQty: accepted,
+          payableAmount: payableAmt,
+          status: matchStatus
+        });
+      }
+    }
+    return list;
+  }, [data.orders, data.suppliers]);
+
+  // Tổng hợp chỉ số Kế toán
+  const totalPoCommitted = matchingLines.reduce((sum, item) => sum + item.poAmount, 0);
+  const totalPayableApproved = matchingLines.reduce((sum, item) => sum + item.payableAmount, 0);
+  const fullyMatchedCount = matchingLines.filter(m => m.status === 'MATCHED').length;
+  const matchRate = matchingLines.length ? Math.round((fullyMatchedCount / matchingLines.length) * 100) : 100;
+
+  // 3. Tổng hợp Công nợ & Chi tiêu Kế toán theo Nhà cung cấp
+  const supplierLedger = useMemo(() => {
+    const map = new Map<string, {
+      supplierId: string;
+      name: string;
+      reputation: number;
+      orderCount: number;
+      committed: number;
+      acceptedPayable: number;
+      pendingDelivery: number;
+    }>();
+
+    for (const sup of data.suppliers) {
+      map.set(sup.id, {
+        supplierId: sup.id,
+        name: sup.name,
+        reputation: sup.reputation,
+        orderCount: 0,
+        committed: 0,
+        acceptedPayable: 0,
+        pendingDelivery: 0
+      });
+    }
+
+    for (const item of matchingLines) {
+      const rec = map.get(item.supplierId) || {
+        supplierId: item.supplierId,
+        name: item.supplierName,
+        reputation: 80,
+        orderCount: 0,
+        committed: 0,
+        acceptedPayable: 0,
+        pendingDelivery: 0
+      };
+      rec.orderCount += 1;
+      rec.committed += item.poAmount;
+      rec.acceptedPayable += item.payableAmount;
+      rec.pendingDelivery += Math.max(0, item.poAmount - item.payableAmount);
+      map.set(item.supplierId, rec);
+    }
+
+    return Array.from(map.values()).filter(s => s.committed > 0);
+  }, [data.suppliers, matchingLines]);
+
+  // Dữ liệu chi tiêu hàng tháng từ dashboard
+  const monthlySpendData = useMemo(() => {
+    return data.dashboard.monthlySpend
+      .filter(m => m.value !== null)
+      .map(m => ({
+        month: m.month,
+        spend: m.value || 0,
+        history: m.historyValue || 0,
+        orders: m.orderValue || 0
+      }));
+  }, [data.dashboard.monthlySpend]);
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -151,19 +275,18 @@ export function AuditPage() {
       {
         key: 'excel',
         icon: <FileExcelOutlined style={{ color: '#52c41a' }} />,
-        label: 'Xuất Báo cáo Kiểm toán (Excel .xlsx)',
+        label: 'Xuất Báo cáo Kiểm toán & Sổ cái Kế toán (Excel)',
         onClick: () => download('excel')
       },
       {
         key: 'pdf',
         icon: <FilePdfOutlined style={{ color: '#f5222d' }} />,
-        label: 'Xuất Hồ sơ Tuân thủ (PDF Document)',
+        label: 'Xuất Biên bản Đối chiếu Kế toán (PDF Document)',
         onClick: () => download('pdf')
       }
     ]
   };
 
-  /** Hiển thị đối chiếu thay đổi dữ liệu (Data Diff) */
   const renderChanges = (changes?: Record<string, { before: unknown; after: unknown }>) => {
     if (!changes || !Object.keys(changes).length) return null;
     const entries = Object.entries(changes);
@@ -256,14 +379,14 @@ export function AuditPage() {
             <Space align="center" style={{ marginBottom: 6 }}>
               <SafetyCertificateOutlined style={{ fontSize: 28, color: '#13c2c2' }} />
               <Title level={2} style={{ color: '#ffffff', margin: 0, fontWeight: 700, letterSpacing: '-0.5px' }}>
-                Trung tâm Kiểm toán & Giám sát Tuân thủ
+                Trung tâm Kiểm toán & Kế toán Mua sắm
               </Title>
               <Tag color="cyan" style={{ marginLeft: 8, borderRadius: 12, padding: '2px 10px', fontWeight: 600 }}>
-                Enterprise Audit Hub
+                Audit & Financial Hub
               </Tag>
             </Space>
-            <Paragraph style={{ color: 'rgba(255,255,255,0.85)', margin: 0, fontSize: 14, maxWidth: 800 }}>
-              Giám sát toàn vẹn dữ liệu đa tầng, đối soát hành vi người dùng, truy vết tự hành AI Agent và kiểm soát rủi ro xung đột lợi ích theo thời gian thực.
+            <Paragraph style={{ color: 'rgba(255,255,255,0.85)', margin: 0, fontSize: 14, maxWidth: 850 }}>
+              Hệ thống tích hợp kép: Giám sát toàn vẹn vết kiểm toán (Audit Trail) chống gian lận, đồng thời tự động hóa Đối chiếu 3 bên Kế toán (3-Way Matching PO ⟷ Kho ⟷ Hóa đơn) và Quản lý Công nợ Phải trả (AP).
             </Paragraph>
           </Col>
           <Col xs={24} md={8} style={{ textAlign: 'right' }}>
@@ -282,7 +405,7 @@ export function AuditPage() {
                   }}
                   icon={<FileExcelOutlined />}
                 >
-                  Xuất Báo cáo <DownOutlined style={{ fontSize: 12 }} />
+                  Xuất Hồ sơ Kiểm toán <DownOutlined style={{ fontSize: 12 }} />
                 </Button>
               </Dropdown>
               <Button 
@@ -299,9 +422,9 @@ export function AuditPage() {
         </Row>
       </div>
 
-      {/* 4 Thẻ KPI Chỉ số Tuân thủ & Kiểm toán (Compliance Metric Cards) */}
+      {/* 4 Thẻ KPI Kiểm toán & Kế toán Cao cấp (Audit & Accounting KPI Cards) */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        {/* KPI 1: Điểm số Tuân thủ */}
+        {/* KPI 1: Kiểm toán - Tuân thủ quy trình */}
         <Col xs={24} sm={12} lg={6}>
           <Card 
             size="small" 
@@ -314,15 +437,15 @@ export function AuditPage() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
-                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Chỉ số Tuân thủ Quy trình</Text>
-                <div style={{ fontSize: 26, fontWeight: 700, color: complianceScore >= 95 ? '#059669' : '#d97706', marginTop: 4 }}>
+                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Chỉ số Tuân thủ Kiểm toán</Text>
+                <div style={{ fontSize: 24, fontWeight: 700, color: complianceScore >= 95 ? '#059669' : '#d97706', marginTop: 4 }}>
                   {complianceScore}%
                 </div>
               </div>
               <div 
                 style={{ 
-                  width: 42, 
-                  height: 42, 
+                  width: 40, 
+                  height: 40, 
                   borderRadius: 10, 
                   background: '#ecfdf5', 
                   display: 'flex', 
@@ -330,7 +453,7 @@ export function AuditPage() {
                   justifyContent: 'center' 
                 }}
               >
-                <SafetyCertificateOutlined style={{ fontSize: 22, color: '#059669' }} />
+                <SafetyCertificateOutlined style={{ fontSize: 20, color: '#059669' }} />
               </div>
             </div>
             <Progress 
@@ -340,12 +463,12 @@ export function AuditPage() {
               size="small" 
             />
             <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
-              {selfApprovedCount === 0 ? '✓ Đạt chuẩn kiểm toán độc lập' : '⚠ Có dấu hiệu vi phạm cần giải trình'}
+              {selfApprovedCount === 0 ? '✓ Không có xung đột lợi ích (0 tự duyệt)' : `⚠ Phát hiện ${selfApprovedCount} vụ tự duyệt đơn`}
             </div>
           </Card>
         </Col>
 
-        {/* KPI 2: Quyết định Phê duyệt Con người */}
+        {/* KPI 2: Kế toán - Tỷ lệ Đối chiếu 3 bên khớp */}
         <Col xs={24} sm={12} lg={6}>
           <Card 
             size="small" 
@@ -358,15 +481,15 @@ export function AuditPage() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
-                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Quyết định Kiểm duyệt (Gate 1 & 2)</Text>
-                <div style={{ fontSize: 26, fontWeight: 700, color: '#1d4ed8', marginTop: 4 }}>
-                  {totalApprovals} <span style={{ fontSize: 14, fontWeight: 500, color: '#64748b' }}>lượt</span>
+                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Đối chiếu 3 bên (3-Way Matching)</Text>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#2563eb', marginTop: 4 }}>
+                  {matchRate}% <span style={{ fontSize: 13, fontWeight: 500, color: '#64748b' }}>({fullyMatchedCount}/{matchingLines.length} dòng)</span>
                 </div>
               </div>
               <div 
                 style={{ 
-                  width: 42, 
-                  height: 42, 
+                  width: 40, 
+                  height: 40, 
                   borderRadius: 10, 
                   background: '#eff6ff', 
                   display: 'flex', 
@@ -374,20 +497,22 @@ export function AuditPage() {
                   justifyContent: 'center' 
                 }}
               >
-                <UserOutlined style={{ fontSize: 22, color: '#2563eb' }} />
+                <CheckCircleOutlined style={{ fontSize: 20, color: '#2563eb' }} />
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-              <Tag color="blue" style={{ borderRadius: 6, fontSize: 11, margin: 0 }}>Gate 1: Nhu cầu</Tag>
-              <Tag color="cyan" style={{ borderRadius: 6, fontSize: 11, margin: 0 }}>Gate 2: Đơn PO</Tag>
-            </div>
+            <Progress 
+              percent={matchRate} 
+              showInfo={false} 
+              strokeColor="#2563eb"
+              size="small" 
+            />
             <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
-              Kiểm soát chéo 2 tầng con người ký duyệt
+              Khớp chuẩn giữa Đơn PO ⟷ Kho ⟷ Hóa đơn
             </div>
           </Card>
         </Col>
 
-        {/* KPI 3: Tác vụ Tự hành AI Agent */}
+        {/* KPI 3: Kế toán - Giá trị Đủ điều kiện thanh toán */}
         <Col xs={24} sm={12} lg={6}>
           <Card 
             size="small" 
@@ -400,15 +525,56 @@ export function AuditPage() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
-                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Quy trình Tự hành AI Agent</Text>
-                <div style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed', marginTop: 4 }}>
-                  {agentRunCount} <span style={{ fontSize: 14, fontWeight: 500, color: '#64748b' }}>chuỗi tác vụ</span>
+                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Công nợ Đủ ĐK Thanh toán (AP)</Text>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#16a34a', marginTop: 4 }}>
+                  {money(totalPayableApproved)}
                 </div>
               </div>
               <div 
                 style={{ 
-                  width: 42, 
-                  height: 42, 
+                  width: 40, 
+                  height: 40, 
+                  borderRadius: 10, 
+                  background: '#f0fdf4', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center' 
+                }}
+              >
+                <DollarOutlined style={{ fontSize: 20, color: '#16a34a' }} />
+              </div>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+              Cam kết PO: <strong style={{ color: '#1e293b' }}>{money(totalPoCommitted)}</strong>
+            </div>
+            <div style={{ marginTop: 4, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>
+              ✓ Đã nghiệm thu chất lượng đạt chuẩn
+            </div>
+          </Card>
+        </Col>
+
+        {/* KPI 4: Kiểm toán - Giám sát Vết & AI */}
+        <Col xs={24} sm={12} lg={6}>
+          <Card 
+            size="small" 
+            style={{ 
+              borderRadius: 12, 
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+              background: '#ffffff'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+              <div>
+                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Vết Kiểm toán & AI Agent</Text>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#7c3aed', marginTop: 4 }}>
+                  {totalApprovals + agentRunCount} <span style={{ fontSize: 13, fontWeight: 500, color: '#64748b' }}>sự kiện</span>
+                </div>
+              </div>
+              <div 
+                style={{ 
+                  width: 40, 
+                  height: 40, 
                   borderRadius: 10, 
                   background: '#f5f3ff', 
                   display: 'flex', 
@@ -416,78 +582,21 @@ export function AuditPage() {
                   justifyContent: 'center' 
                 }}
               >
-                <RobotOutlined style={{ fontSize: 22, color: '#7c3aed' }} />
+                <RobotOutlined style={{ fontSize: 20, color: '#7c3aed' }} />
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-              <Tag color="purple" style={{ borderRadius: 6, fontSize: 11, margin: 0 }}>OCR Báo giá</Tag>
-              <Tag color="purple" style={{ borderRadius: 6, fontSize: 11, margin: 0 }}>Soạn Email</Tag>
-              <Tag color="purple" style={{ borderRadius: 6, fontSize: 11, margin: 0 }}>AHP</Tag>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <Tag color="purple" style={{ borderRadius: 6, fontSize: 11, margin: 0 }}>{agentRunCount} lượt AI</Tag>
+              <Tag color="blue" style={{ borderRadius: 6, fontSize: 11, margin: 0 }}>{totalApprovals} lần duyệt</Tag>
             </div>
             <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
-              Tự động hóa hoàn toàn với vết kiểm toán
-            </div>
-          </Card>
-        </Col>
-
-        {/* KPI 4: Cảnh báo Xung đột Lợi ích */}
-        <Col xs={24} sm={12} lg={6}>
-          <Card 
-            size="small" 
-            style={{ 
-              borderRadius: 12, 
-              border: selfApprovedCount > 0 ? '1px solid #fca5a5' : '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
-              background: selfApprovedCount > 0 ? '#fff5f5' : '#ffffff'
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-              <div>
-                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Cảnh báo Tự Duyệt (Self-Approved)</Text>
-                <div 
-                  style={{ 
-                    fontSize: 26, 
-                    fontWeight: 700, 
-                    color: selfApprovedCount > 0 ? '#dc2626' : '#059669', 
-                    marginTop: 4 
-                  }}
-                >
-                  {selfApprovedCount} <span style={{ fontSize: 14, fontWeight: 500, color: '#64748b' }}>vụ việc</span>
-                </div>
-              </div>
-              <div 
-                style={{ 
-                  width: 42, 
-                  height: 42, 
-                  borderRadius: 10, 
-                  background: selfApprovedCount > 0 ? '#fee2e2' : '#ecfdf5', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center' 
-                }}
-              >
-                <WarningOutlined style={{ fontSize: 22, color: selfApprovedCount > 0 ? '#dc2626' : '#059669' }} />
-              </div>
-            </div>
-            <div style={{ marginTop: 10 }}>
-              {selfApprovedCount === 0 ? (
-                <Tag color="success" style={{ borderRadius: 6, fontSize: 11 }}>
-                  ✓ Không có xung đột lợi ích
-                </Tag>
-              ) : (
-                <Tag color="error" style={{ borderRadius: 6, fontSize: 11 }}>
-                  ⚠ Phát hiện tự tạo & tự duyệt
-                </Tag>
-              )}
-            </div>
-            <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
-              Kiểm tra chéo người tạo đề xuất vs người ký duyệt
+              Lưu vết bất biến chống chối bỏ
             </div>
           </Card>
         </Col>
       </Row>
 
-      {/* Biểu đồ Trực quan hóa Xu hướng Kiểm toán (Audit Trends Analytics) */}
+      {/* Biểu đồ Trực quan hóa Kế toán & Kiểm toán */}
       {showChart && (
         <Card 
           size="small" 
@@ -500,62 +609,48 @@ export function AuditPage() {
           title={
             <Space>
               <LineChartOutlined style={{ color: '#13c2c2' }} />
-              <span style={{ fontWeight: 600 }}>Biểu đồ Tần suất Hoạt động Kiểm toán: Tác nhân Người dùng vs AI Agent</span>
+              <span style={{ fontWeight: 600 }}>Biểu đồ Kế toán: Dòng tiền Chi tiêu Ngân sách & Hoạt động Kiểm toán theo Tháng</span>
             </Space>
           }
         >
           <Row gutter={[24, 16]} align="middle">
-            <Col xs={24} lg={17}>
-              <div style={{ height: 200, width: '100%' }}>
+            <Col xs={24} lg={16}>
+              <div style={{ height: 210, width: '100%' }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 30, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorHuman" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#2563eb" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="colorAgent" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
+                  <BarChart data={monthlySpendData.length ? monthlySpendData : [{ month: '10/2026', spend: totalPoCommitted, history: 0, orders: totalPoCommitted }]} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} />
-                    <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickFormatter={val => `${Math.round(val / 1e6)} tr`} />
                     <ChartTooltip 
                       contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                      formatter={(val, name) => [
-                        `${val} hành động`, 
-                        name === 'human' ? 'Người dùng (Nhân sự)' : 'AI Agent Tự hành'
-                      ]}
+                      formatter={(val: any) => [money(Number(val)), 'Chi tiêu thanh toán']}
                     />
-                    <Area type="monotone" dataKey="human" name="human" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#colorHuman)" />
-                    <Area type="monotone" dataKey="agent" name="agent" stroke="#7c3aed" strokeWidth={2} fillOpacity={1} fill="url(#colorAgent)" />
-                  </AreaChart>
+                    <Bar dataKey="spend" fill="#13c2c2" radius={[6, 6, 0, 0]} name="Tổng chi tiêu" />
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </Col>
-            <Col xs={24} lg={7}>
+            <Col xs={24} lg={8}>
               <div style={{ background: '#f8fafc', padding: 16, borderRadius: 10, border: '1px solid #edf2f7' }}>
-                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-                  Phân bố Cơ cấu Tác nhân Kiểm toán:
+                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>
+                  Chỉ số Phân bổ Tài chính Kế toán:
                 </Text>
-                <div style={{ marginBottom: 10 }}>
+                <div style={{ marginBottom: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                    <span style={{ color: '#2563eb', fontWeight: 600 }}>👤 Người dùng thực hiện</span>
-                    <span style={{ fontWeight: 600 }}>{totalApprovals + 10} sự kiện</span>
+                    <span style={{ color: '#16a34a', fontWeight: 600 }}>Đã nghiệm thu (Được thanh toán)</span>
+                    <span style={{ fontWeight: 600 }}>{money(totalPayableApproved)}</span>
                   </div>
-                  <Progress percent={60} strokeColor="#2563eb" size="small" showInfo={false} />
+                  <Progress percent={totalPoCommitted ? Math.round((totalPayableApproved / totalPoCommitted) * 100) : 100} strokeColor="#16a34a" size="small" showInfo={false} />
                 </div>
-                <div style={{ marginBottom: 10 }}>
+                <div style={{ marginBottom: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                    <span style={{ color: '#7c3aed', fontWeight: 600 }}>🤖 AI Agent tự động hóa</span>
-                    <span style={{ fontWeight: 600 }}>{agentRunCount * 4 + 8} sự kiện</span>
+                    <span style={{ color: '#d97706', fontWeight: 600 }}>Đang chờ giao & nghiệm thu</span>
+                    <span style={{ fontWeight: 600 }}>{money(Math.max(0, totalPoCommitted - totalPayableApproved))}</span>
                   </div>
-                  <Progress percent={40} strokeColor="#7c3aed" size="small" showInfo={false} />
+                  <Progress percent={totalPoCommitted ? Math.round((Math.max(0, totalPoCommitted - totalPayableApproved) / totalPoCommitted) * 100) : 0} strokeColor="#d97706" size="small" showInfo={false} />
                 </div>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
-                  * Toàn bộ thao tác đều được gán chữ ký số vết kiểm toán chống chối bỏ.
+                  * Kế toán thanh toán chỉ giải ngân khi biên bản 3-Way Matching khớp 100%.
                 </div>
               </div>
             </Col>
@@ -563,19 +658,20 @@ export function AuditPage() {
         </Card>
       )}
 
-      {/* Thanh Điều Hướng 2 Tab Nghiệp Vụ */}
+      {/* Thanh 4 Tab Nghiệp Vụ Kiểm Toán & Kế Toán Chuyên Sâu */}
       <Tabs
         activeKey={tab}
-        onChange={k => setTab(k as 'events' | 'movements')}
+        onChange={k => setTab(k as any)}
         type="card"
         style={{ marginBottom: 16 }}
         items={[
+          // TAB 1: KIỂM TOÁN VẾT HÀNH VI
           {
             key: 'events',
             label: (
               <span style={{ padding: '4px 8px', fontWeight: 600, fontSize: 14 }}>
                 <SafetyCertificateOutlined style={{ color: '#13c2c2', marginRight: 6 }} />
-                Nhật ký Hành vi & Vết kiểm toán (Audit Trail)
+                1. Nhật ký Kiểm toán & Vết hành vi (Audit Trail)
               </span>
             ),
             children: (
@@ -594,10 +690,9 @@ export function AuditPage() {
                     from: from || undefined, 
                     to: to || undefined
                   }}
-                  searchPlaceholder="Tìm theo tên người thực hiện, hành động, mã đối tượng..."
+                  searchPlaceholder="Tìm theo người thực hiện, hành động, mã đối tượng..."
                   filters={
                     <Space wrap size="middle">
-                      {/* Quick Filter Actor */}
                       <Radio.Group 
                         value={actorFilter} 
                         onChange={e => setActorFilter(e.target.value)}
@@ -613,7 +708,6 @@ export function AuditPage() {
                         </Radio.Button>
                       </Radio.Group>
 
-                      {/* Dropdown module/thực thể */}
                       <Select
                         aria-label="Loại đối tượng"
                         allowClear
@@ -631,7 +725,6 @@ export function AuditPage() {
                         style={{ minWidth: 210 }}
                       />
 
-                      {/* Lọc khoảng thời gian */}
                       <Space>
                         <Input
                           aria-label="Từ ngày"
@@ -881,12 +974,246 @@ export function AuditPage() {
               </Card>
             ),
           },
+
+          // TAB 2: ĐỐI CHIẾU 3 BÊN KẾ TOÁN (3-WAY MATCHING)
+          {
+            key: 'matching',
+            label: (
+              <span style={{ padding: '4px 8px', fontWeight: 600, fontSize: 14 }}>
+                <AccountBookOutlined style={{ color: '#2563eb', marginRight: 6 }} />
+                2. Đối chiếu 3 bên Kế toán (3-Way Matching PO ⟷ Kho ⟷ Hóa đơn)
+              </span>
+            ),
+            children: (
+              <Card 
+                bodyStyle={{ padding: 16 }} 
+                style={{ 
+                  borderRadius: 12, 
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
+                }}
+              >
+                <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <Title level={4} style={{ margin: 0 }}>Bảng Đối soát Kế toán Mua sắm (Accounts Payable 3-Way Matching)</Title>
+                    <Text type="secondary">
+                      Đối chiếu tự động giữa (1) Hợp đồng Đơn mua PO, (2) Phiếu Nhập kho & Nghiệm thu chất lượng, và (3) Hóa đơn thanh toán NCC.
+                    </Text>
+                  </div>
+                  <Tag color="blue" style={{ fontSize: 13, padding: '4px 12px', borderRadius: 6, fontWeight: 600 }}>
+                    Tỷ lệ khớp chuẩn: {matchRate}%
+                  </Tag>
+                </div>
+
+                <Table
+                  dataSource={matchingLines}
+                  rowKey="lineId"
+                  pagination={{ pageSize: 8 }}
+                  columns={[
+                    {
+                      title: 'Chứng từ PO',
+                      width: 140,
+                      render: (_, item) => (
+                        <div>
+                          <strong style={{ color: '#2563eb' }}>PO #{shortId(item.orderId)}</strong>
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>{date(item.orderCreatedAt)}</div>
+                          <div style={{ fontSize: 11, color: '#475569', fontWeight: 500 }}>{item.supplierName}</div>
+                        </div>
+                      )
+                    },
+                    {
+                      title: 'Mặt hàng vật tư',
+                      render: (_, item) => (
+                        <div>
+                          <strong style={{ fontSize: 13 }}>{item.productName}</strong>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>
+                            SKU: <span style={{ fontFamily: 'monospace' }}>{item.sku}</span> | ĐVT: {item.unit}
+                          </div>
+                        </div>
+                      )
+                    },
+                    {
+                      title: '1. Đặt mua (PO)',
+                      width: 130,
+                      render: (_, item) => (
+                        <div style={{ fontSize: 12 }}>
+                          <div>Số lượng: <strong>{number(item.orderedQty)}</strong> {item.unit}</div>
+                          <div style={{ color: '#64748b' }}>Đơn giá: {money(item.unitPrice)}</div>
+                          <div style={{ fontWeight: 600, color: '#1e293b' }}>Tổng: {money(item.poAmount)}</div>
+                        </div>
+                      )
+                    },
+                    {
+                      title: '2. Nhập kho & Kiểm định',
+                      width: 160,
+                      render: (_, item) => (
+                        <div style={{ fontSize: 12 }}>
+                          <div>Thực nhận: <strong>{number(item.receivedQty)}</strong> {item.unit}</div>
+                          <div>
+                            Đạt chuẩn: <strong style={{ color: '#16a34a' }}>{number(item.acceptedQty)}</strong> {item.unit}
+                          </div>
+                          {item.receivedQty > item.acceptedQty && (
+                            <div style={{ color: '#dc2626', fontWeight: 600, fontSize: 11 }}>
+                              ⚠ Loại bỏ: {item.receivedQty - item.acceptedQty} {item.unit}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    },
+                    {
+                      title: '3. Kết quả Đối soát',
+                      width: 160,
+                      render: (_, item) => {
+                        switch (item.status) {
+                          case 'MATCHED':
+                            return (
+                              <Tag color="success" icon={<CheckCircleOutlined />} style={{ borderRadius: 6, fontWeight: 600, padding: '3px 8px' }}>
+                                Khớp hoàn hảo 100%
+                              </Tag>
+                            );
+                          case 'PARTIAL':
+                            return (
+                              <Tag color="warning" icon={<ClockCircleOutlined />} style={{ borderRadius: 6, fontWeight: 600, padding: '3px 8px' }}>
+                                Giao nhận một phần
+                              </Tag>
+                            );
+                          case 'DEFECT':
+                            return (
+                              <Tag color="error" icon={<CloseCircleOutlined />} style={{ borderRadius: 6, fontWeight: 600, padding: '3px 8px' }}>
+                                Có hàng lỗi / Lệch chuẩn
+                              </Tag>
+                            );
+                          case 'AWAITING':
+                          default:
+                            return (
+                              <Tag color="default" style={{ borderRadius: 6, padding: '3px 8px' }}>
+                                Đang chờ giao hàng
+                              </Tag>
+                            );
+                        }
+                      }
+                    },
+                    {
+                      title: 'Giá trị Đủ ĐK Thanh toán',
+                      width: 170,
+                      render: (_, item) => (
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: item.payableAmount > 0 ? '#16a34a' : '#94a3b8' }}>
+                            {money(item.payableAmount)}
+                          </div>
+                          {item.status === 'MATCHED' ? (
+                            <span style={{ fontSize: 11, color: '#16a34a' }}>✓ Cho phép giải ngân</span>
+                          ) : item.status === 'DEFECT' ? (
+                            <span style={{ fontSize: 11, color: '#dc2626' }}>⛔ Treo thanh toán lỗi</span>
+                          ) : (
+                            <span style={{ fontSize: 11, color: '#94a3b8' }}>Chờ nhập kho đủ</span>
+                          )}
+                        </div>
+                      )
+                    }
+                  ]}
+                />
+              </Card>
+            ),
+          },
+
+          // TAB 3: SỔ CÁI TÀI CHÍNH & CÔNG NỢ NCC (AP SPEND LEDGER)
+          {
+            key: 'financial',
+            label: (
+              <span style={{ padding: '4px 8px', fontWeight: 600, fontSize: 14 }}>
+                <DollarOutlined style={{ color: '#16a34a', marginRight: 6 }} />
+                3. Sổ cái Tài chính & Công nợ NCC (AP Ledger)
+              </span>
+            ),
+            children: (
+              <Card 
+                bodyStyle={{ padding: 16 }} 
+                style={{ 
+                  borderRadius: 12, 
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
+                }}
+              >
+                <div style={{ marginBottom: 16 }}>
+                  <Title level={4} style={{ margin: 0 }}>Sổ Kế toán Công nợ Phải trả theo Nhà cung cấp</Title>
+                  <Text type="secondary">
+                    Theo dõi nghĩa vụ thanh toán, giá trị đã nghiệm thu, và phân tích công nợ tồn đọng.
+                  </Text>
+                </div>
+
+                <Table
+                  dataSource={supplierLedger}
+                  rowKey="supplierId"
+                  pagination={false}
+                  columns={[
+                    {
+                      title: 'Nhà cung cấp',
+                      render: (_, s) => (
+                        <div>
+                          <strong style={{ fontSize: 14 }}>{s.name}</strong>
+                          <div style={{ fontSize: 12, color: '#64748b' }}>
+                            Điểm uy tín: <Tag color="blue">{s.reputation}/100</Tag>
+                          </div>
+                        </div>
+                      )
+                    },
+                    {
+                      title: 'Số đơn PO phát sinh',
+                      dataIndex: 'orderCount',
+                      width: 140,
+                      render: c => <strong>{c} đơn hàng</strong>
+                    },
+                    {
+                      title: 'Tổng Giá trị Cam kết (PO)',
+                      dataIndex: 'committed',
+                      width: 180,
+                      render: val => <span style={{ fontWeight: 600 }}>{money(val)}</span>
+                    },
+                    {
+                      title: 'Đã nghiệm thu (Đủ ĐK Trả)',
+                      dataIndex: 'acceptedPayable',
+                      width: 190,
+                      render: val => (
+                        <span style={{ fontWeight: 700, color: '#16a34a' }}>
+                          {money(val)}
+                        </span>
+                      )
+                    },
+                    {
+                      title: 'Chờ giao & Nghiệm thu',
+                      dataIndex: 'pendingDelivery',
+                      width: 190,
+                      render: val => (
+                        <span style={{ fontWeight: 600, color: '#d97706' }}>
+                          {money(val)}
+                        </span>
+                      )
+                    },
+                    {
+                      title: 'Tiến độ Thanh toán',
+                      render: (_, s) => {
+                        const pct = s.committed ? Math.round((s.acceptedPayable / s.committed) * 100) : 0;
+                        return (
+                          <div style={{ width: 140 }}>
+                            <Progress percent={pct} size="small" strokeColor="#16a34a" />
+                          </div>
+                        );
+                      }
+                    }
+                  ]}
+                />
+              </Card>
+            ),
+          },
+
+          // TAB 4: SỔ CÁI KHO & DÒNG TIỀN HÀNG (STOCK LEDGER)
           {
             key: 'movements',
             label: (
               <span style={{ padding: '4px 8px', fontWeight: 600, fontSize: 14 }}>
                 <InboxOutlined style={{ color: '#10b981', marginRight: 6 }} />
-                Sổ cái Kho & Dòng tiền hàng (Stock Ledger)
+                4. Sổ cái Kho & Dòng tiền hàng (Stock Ledger)
               </span>
             ),
             children: (
@@ -1050,7 +1377,6 @@ export function AuditPage() {
       >
         {selected && (
           <div>
-            {/* Cảnh báo nghiêm trọng nếu có Tự Duyệt */}
             {(selected.detail as any)?.selfApproved && (
               <Alert
                 type="error"
@@ -1061,7 +1387,6 @@ export function AuditPage() {
               />
             )}
 
-            {/* Thông tin Tổng quan Sự kiện */}
             <Card size="small" style={{ borderRadius: 10, marginBottom: 16, background: '#f8fafc' }}>
               <Row gutter={[16, 12]}>
                 <Col span={12}>
@@ -1093,7 +1418,6 @@ export function AuditPage() {
               </Row>
             </Card>
 
-            {/* Trích dẫn Ý kiến phê duyệt nếu có */}
             {(selected.detail as any)?.comment && (
               <div 
                 style={{ 
@@ -1113,10 +1437,8 @@ export function AuditPage() {
               </div>
             )}
 
-            {/* Bảng Data Diff Trước & Sau */}
             {renderChanges((selected.detail as any)?.changes)}
 
-            {/* Payload JSON Kỹ thuật */}
             <Divider style={{ margin: '20px 0 16px 0' }} />
             <div>
               <Text strong style={{ display: 'block', marginBottom: 8 }}>
